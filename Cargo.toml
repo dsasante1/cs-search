@@ -1,0 +1,21 @@
+[package]
+name = "cs"
+version = "0.2.0"
+edition = "2021"
+description = "Search Claude Code conversation history across all sessions and projects"
+
+[[bin]]
+name = "cs"
+path = "src/main.rs"
+
+[dependencies]
+regex = "1.13"
+serde_json = { version = "1.0", features = ["preserve_order"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+walkdir = "2.5"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
