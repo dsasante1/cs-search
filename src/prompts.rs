@@ -41,7 +41,7 @@ pub fn run(opts: &Opts, re: &Regex) -> Result<Vec<Row>, String> {
             ts: v
                 .get("timestamp")
                 .and_then(Value::as_i64)
-                .and_then(|ms| DateTime::from_timestamp_millis(ms))
+                .and_then(DateTime::from_timestamp_millis)
                 .map(|dt| {
                     dt.with_timezone(&Local)
                         .format("%Y-%m-%d %H:%M")

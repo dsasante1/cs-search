@@ -1,5 +1,10 @@
-//! Argument parsing. Hand-rolled to keep the CLI surface byte-identical to the
-//! shell version (and to avoid pulling in a parser crate for nine flags).
+//! Argument parsing. Built on `lexopt` (a zero-dependency argument iterator) so
+//! the conventional forms — `--project=x`, `-tT`, `-c60` — come for free, while
+//! the usage text, error wording and flag grammar stay ours: the CLI surface is
+//! byte-identical to the shell version it replaced.
+
+use lexopt::prelude::*;
+use std::ffi::OsString;
 
 pub const USAGE: &str = r#"cs — search your Claude Code history across every session and project
 
@@ -70,81 +75,66 @@ pub enum Parsed {
     Search(Box<Opts>),
 }
 
-pub fn parse(args: &[String]) -> Result<Parsed, String> {
-    let mut o = Opts::default();
-    let mut i = 0;
+/// Take the value belonging to `flag`, reporting it the way the shell version did.
+fn value(p: &mut lexopt::Parser, flag: &str) -> Result<String, String> {
+    p.value()
+        .map_err(|_| format!("{flag} requires a value"))?
+        .into_string()
+        .map_err(|v| format!("{flag} value is not valid UTF-8: {}", v.to_string_lossy()))
+}
 
-    // Consume flags up to the first bare word, matching the original loop.
-    while i < args.len() {
-        let a = args[i].as_str();
-        let need = |o: &mut String, i: &mut usize| -> Result<(), String> {
-            let v = args
-                .get(*i + 1)
-                .ok_or_else(|| format!("{a} requires a value"))?;
-            *o = v.clone();
-            *i += 2;
-            Ok(())
+pub fn parse(args: &[OsString]) -> Result<Parsed, String> {
+    let mut o = Opts::default();
+    let mut p = lexopt::Parser::from_args(args.iter());
+
+    // Consume flags up to the first bare word, matching the original loop:
+    // the pattern ends option parsing, so anything after it is left alone.
+    loop {
+        let arg = match p.next() {
+            Ok(Some(a)) => a,
+            Ok(None) => break,
+            Err(e) => return Err(e.to_string()),
         };
-        match a {
-            "-P" | "--project" => {
-                let mut v = String::new();
-                need(&mut v, &mut i)?;
-                o.project = v.to_lowercase();
-            }
-            "-r" | "--role" => need(&mut o.role, &mut i)?,
-            "-s" | "--since" => need(&mut o.since, &mut i)?,
-            "-c" | "--chars" => {
-                let mut v = String::new();
-                need(&mut v, &mut i)?;
+        // The flag as the user spelled it, so errors quote back what they typed.
+        let name = match &arg {
+            Short(c) => format!("-{c}"),
+            Long(s) => format!("--{s}"),
+            Value(_) => String::new(),
+        };
+        match arg {
+            Short('P') | Long("project") => o.project = value(&mut p, &name)?.to_lowercase(),
+            Short('r') | Long("role") => o.role = value(&mut p, &name)?,
+            Short('s') | Long("since") => o.since = value(&mut p, &name)?,
+            Short('c') | Long("chars") => {
+                let v = value(&mut p, &name)?;
                 o.chars = v.parse().map_err(|_| format!("bad --chars value: {v}"))?;
             }
-            "-j" | "--jobs" => {
-                let mut v = String::new();
-                need(&mut v, &mut i)?;
+            Short('j') | Long("jobs") => {
+                let v = value(&mut p, &name)?;
                 o.jobs = v
                     .parse::<usize>()
                     .map_err(|_| format!("bad --jobs value: {v}"))?
                     .max(1);
             }
-            "-t" | "--tools" => {
-                o.tools = true;
-                i += 1;
-            }
-            "-T" | "--no-thinking" => {
-                o.thinking = false;
-                i += 1;
-            }
-            "-l" | "--files" => {
-                o.files_only = true;
-                i += 1;
-            }
-            "-n" | "--no-sub" => {
-                o.no_sub = true;
-                i += 1;
-            }
-            "-p" | "--prompts" => {
-                o.prompts = true;
-                i += 1;
-            }
-            "-i" | "--interactive" => {
-                o.interactive = true;
-                i += 1;
-            }
-            "-h" | "--help" => return Ok(Parsed::Help),
-            "--" => {
-                i += 1;
+            Short('t') | Long("tools") => o.tools = true,
+            Short('T') | Long("no-thinking") => o.thinking = false,
+            Short('l') | Long("files") => o.files_only = true,
+            Short('n') | Long("no-sub") => o.no_sub = true,
+            Short('p') | Long("prompts") => o.prompts = true,
+            Short('i') | Long("interactive") => o.interactive = true,
+            Short('h') | Long("help") => return Ok(Parsed::Help),
+            Value(v) => {
+                o.pattern = v.into_string().map_err(|v| {
+                    format!("pattern is not valid UTF-8: {}", v.to_string_lossy())
+                })?;
                 break;
             }
-            _ if a.starts_with('-') && a.len() > 1 => {
-                return Err(format!("unknown option: {a}"))
-            }
-            _ => break,
+            _ => return Err(format!("unknown option: {name}")),
         }
     }
 
-    match args.get(i) {
-        Some(p) if !p.is_empty() => o.pattern = p.clone(),
-        _ => return Err(String::new()), // empty message => print usage
+    if o.pattern.is_empty() {
+        return Err(String::new()); // empty message => print usage
     }
 
     if !o.role.is_empty() && o.role != "user" && o.role != "assistant" {
@@ -158,10 +148,13 @@ pub fn parse(args: &[String]) -> Result<Parsed, String> {
 mod tests {
     use super::*;
 
+    fn owned(args: &[&str]) -> Vec<OsString> {
+        args.iter().map(OsString::from).collect()
+    }
+
     /// Parse and unwrap to Opts, failing the test on Help or Err.
     fn opts(args: &[&str]) -> Opts {
-        let owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-        match parse(&owned) {
+        match parse(&owned(args)) {
             Ok(Parsed::Search(o)) => *o,
             Ok(Parsed::Help) => panic!("expected a search, got help: {args:?}"),
             Err(e) => panic!("expected a search, got error {e:?}: {args:?}"),
@@ -169,8 +162,7 @@ mod tests {
     }
 
     fn err(args: &[&str]) -> String {
-        let owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-        match parse(&owned) {
+        match parse(&owned(args)) {
             Err(e) => e,
             _ => panic!("expected an error: {args:?}"),
         }
@@ -201,6 +193,13 @@ mod tests {
     }
 
     #[test]
+    fn short_boolean_flags_can_be_bundled() {
+        let o = opts(&["-tTln", "needle"]);
+        assert!(o.tools && !o.thinking && o.files_only && o.no_sub);
+        assert_eq!(o.pattern, "needle");
+    }
+
+    #[test]
     fn project_filter_is_lowercased_for_case_insensitive_matching() {
         assert_eq!(opts(&["-P", "DashQard", "needle"]).project, "dashqard");
     }
@@ -212,6 +211,31 @@ mod tests {
         assert_eq!(o.since, "2026-07-01");
         assert_eq!(o.chars, 60);
         assert_eq!(o.jobs, 3);
+        assert_eq!(o.pattern, "needle");
+    }
+
+    #[test]
+    fn long_flags_take_an_attached_value() {
+        let o = opts(&["--project=DashQard", "--chars=60", "--role=user", "needle"]);
+        assert_eq!(o.project, "dashqard");
+        assert_eq!(o.chars, 60);
+        assert_eq!(o.role, "user");
+        assert_eq!(o.pattern, "needle");
+    }
+
+    #[test]
+    fn short_flags_take_an_attached_value() {
+        let o = opts(&["-c60", "-j3", "-Pdashqard", "needle"]);
+        assert_eq!(o.chars, 60);
+        assert_eq!(o.jobs, 3);
+        assert_eq!(o.project, "dashqard");
+    }
+
+    #[test]
+    fn a_bundle_can_end_in_a_value_flag() {
+        let o = opts(&["-tc", "60", "needle"]);
+        assert!(o.tools);
+        assert_eq!(o.chars, 60);
         assert_eq!(o.pattern, "needle");
     }
 
@@ -237,9 +261,19 @@ mod tests {
     }
 
     #[test]
+    fn flags_after_the_pattern_are_left_alone() {
+        // The pattern ends option parsing, as in the shell version.
+        let o = opts(&["needle", "-t"]);
+        assert_eq!(o.pattern, "needle");
+        assert!(!o.tools);
+    }
+
+    #[test]
     fn unknown_options_are_rejected() {
         assert!(err(&["-Z", "needle"]).contains("unknown option"));
         assert!(err(&["--nope", "needle"]).contains("unknown option"));
+        // A bundle names the offending letter, not the whole bundle.
+        assert_eq!(err(&["-tZ", "needle"]), "unknown option: -Z");
     }
 
     #[test]
@@ -252,6 +286,13 @@ mod tests {
     fn a_flag_missing_its_value_is_rejected() {
         assert!(err(&["-P"]).contains("requires a value"));
         assert!(err(&["-r"]).contains("requires a value"));
+        // The message quotes the spelling the user actually typed.
+        assert_eq!(err(&["--project"]), "--project requires a value");
+    }
+
+    #[test]
+    fn a_value_on_a_boolean_flag_is_rejected() {
+        assert!(!err(&["--tools=yes", "needle"]).is_empty());
     }
 
     #[test]
@@ -259,12 +300,12 @@ mod tests {
         // An empty message is the signal to print usage rather than an error.
         assert_eq!(err(&[]), "");
         assert_eq!(err(&["-t"]), "");
+        assert_eq!(err(&["--"]), "");
     }
 
     #[test]
     fn help_short_circuits() {
-        let owned = vec!["-h".to_string(), "needle".to_string()];
-        assert!(matches!(parse(&owned), Ok(Parsed::Help)));
+        assert!(matches!(parse(&owned(&["-h", "needle"])), Ok(Parsed::Help)));
     }
 
     #[test]
