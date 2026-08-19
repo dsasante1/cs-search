@@ -55,6 +55,7 @@ pub fn run(opts: &Opts, re: &Regex) -> Result<Vec<Row>, String> {
             role: "you".to_owned(),
             sid: take_chars(sid, 8).to_owned(),
             text: take_chars(&squash(display), opts.chars).to_owned(),
+            ..Default::default()
         });
     }
 

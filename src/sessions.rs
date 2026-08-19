@@ -91,6 +91,7 @@ fn first_prompt(path: &Path) -> Option<(SystemTime, PathBuf, Row)> {
                 role: "sess".to_owned(),
                 sid: take_chars(r.session_id(), 8).to_owned(),
                 text: take_chars(&squash(&text), SUMMARY_CHARS).to_owned(),
+                ..Default::default()
             },
         ));
     }
