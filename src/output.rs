@@ -188,7 +188,7 @@ mod tests {
 
     #[test]
     fn sort_key_orders_by_timestamp_first() {
-        let mut rows = vec![
+        let mut rows = [
             Row { ts: "2026-08-19 03:18".into(), ..row_with("b") },
             Row { ts: "2026-01-01 00:00".into(), ..row_with("a") },
         ];
