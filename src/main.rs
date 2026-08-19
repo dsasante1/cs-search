@@ -12,21 +12,25 @@ mod show;
 use cli::{Parsed, USAGE};
 use output::{is_tty, Row};
 use regex::Regex;
+use std::ffi::OsString;
 use std::io::{BufWriter, Write};
 use std::process::exit;
 
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    // args_os, so a pattern that is not valid UTF-8 is reported by the parser
+    // rather than panicking before it ever gets there.
+    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     if args.is_empty() {
         print!("{USAGE}");
         exit(0);
     }
 
     // Subcommands are matched before flags, as in the original script.
-    match args[0].as_str() {
-        "show" => exit(show::run(args.get(1).map(String::as_str).unwrap_or(""))),
+    let sub = |i: usize| args.get(i).and_then(|a| a.to_str()).unwrap_or("");
+    match sub(0) {
+        "show" => exit(show::run(sub(1))),
         "sessions" => {
-            let filter = args.get(1).map(String::as_str).unwrap_or("");
+            let filter = sub(1);
             let jobs = cli::Opts::default().jobs;
             let rows = sessions::run(filter, jobs);
             print_rows(&rows, None);
