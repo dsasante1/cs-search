@@ -92,6 +92,32 @@ at, but every surviving file was then re-read and fully parsed. Here the
 prefilter and the parser are in the same process, so rejecting a line actually
 avoids the work.
 
+## Tests
+
+```sh
+cargo test
+```
+
+87 tests, needing no network and no fixtures beyond what the suite creates and
+cleans up itself:
+
+- **Unit tests** sit inline in each module and cover the pure helpers —
+  character-wise truncation and padding, jq-equivalent `tostring`, block
+  flattening and its gating, argument parsing, and the prefilter's two guards.
+- **Integration tests** (`tests/cli.rs`) build a synthetic corpus in a temp
+  directory, point the binary at it with `CLAUDE_HOME`, and assert on real
+  output. The fixture is hand-written, so the suite carries no personal data.
+
+The prefilter's invariant — that it may waste work but must never drop a line
+whose decoded text matches — is checked twice over: as a property test across
+texts containing quotes, backslashes, tabs, newlines and unicode, and end-to-end
+by diffing every result against `CS_NO_PREFILTER=1`.
+
+Each behaviour fixed relative to the shell version has a named regression test.
+The guards behind them were confirmed to have teeth by mutation: separately
+disabling the anchor check, the escape fallback and the meta-record filter each
+makes the suite fail.
+
 ## Layout
 
 | | |
@@ -105,3 +131,4 @@ avoids the work.
 | `src/prompts.rs` | `cs -p` |
 | `src/interactive.rs` | `cs -i` (fzf) |
 | `src/output.rs` | row formatting, colour, highlighting |
+| `tests/cli.rs` | end-to-end tests against a synthetic corpus |
