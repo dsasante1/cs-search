@@ -223,3 +223,136 @@ fn emit(v: &Value, ctx: &Ctx, rows: &mut Vec<Row>) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn bre(pat: &str) -> BytesRegex {
+        BytesRegex::new(&format!("(?i){pat}")).unwrap()
+    }
+
+    #[test]
+    fn positional_assertions_are_detected() {
+        for pat in [
+            "^SELECT", "ERROR$", r"\bword", r"\Bfoo", r"\Astart", r"end\z", r"\Zend",
+            r"\<word\>", "^", "$",
+        ] {
+            assert!(has_positional_assertion(pat), "should detect: {pat}");
+        }
+    }
+
+    #[test]
+    fn ordinary_patterns_keep_the_prefilter() {
+        for pat in [
+            "plain", "a.b", "foo|bar", "a+b*", r"\d+", r"\w+", r"\s", "[abc]",
+            "ALTER TABLE", "(group)", "x{2,3}",
+        ] {
+            assert!(!has_positional_assertion(pat), "should not detect: {pat}");
+        }
+    }
+
+    #[test]
+    fn assertion_detection_errs_toward_disabling_the_prefilter() {
+        // A '$' inside a character class is a literal, but treating it as an
+        // assertion only costs speed. Correctness must never depend on parsing
+        // the regex properly here.
+        assert!(has_positional_assertion("[$]"));
+        assert!(has_positional_assertion(r"\$"));
+    }
+
+    #[test]
+    fn disabled_prefilter_accepts_everything() {
+        assert!(might_match(b"anything at all", None));
+        assert!(might_match(b"", None));
+    }
+
+    #[test]
+    fn prefilter_rejects_clean_non_matching_lines() {
+        let pre = bre("needle");
+        assert!(!might_match(br#"{"text":"haystack only"}"#, Some(&pre)));
+        assert!(might_match(br#"{"text":"has a needle in it"}"#, Some(&pre)));
+    }
+
+    #[test]
+    fn newline_escapes_do_not_force_a_decode() {
+        // Decoded text is searched line by line, so a pattern can never span a
+        // \n boundary -- the cheap rejection stays valid.
+        let pre = bre("needle");
+        assert!(!might_match(br#"{"text":"one\ntwo\nthree"}"#, Some(&pre)));
+    }
+
+    #[test]
+    fn other_escapes_force_a_decode() {
+        // These decode to a single character *within* a line, so a match could
+        // straddle them and the raw comparison is not trustworthy.
+        let pre = bre("needle");
+        for raw in [
+            br#"{"text":"say \"hi\""}"#.as_slice(),
+            br#"{"text":"back\\slash"}"#.as_slice(),
+            br#"{"text":"tab\there"}"#.as_slice(),
+            br#"{"text":"caf\u00e9"}"#.as_slice(),
+        ] {
+            assert!(
+                might_match(raw, Some(&pre)),
+                "should decode rather than reject: {}",
+                String::from_utf8_lossy(raw)
+            );
+        }
+    }
+
+    /// The invariant the whole design rests on: the prefilter may waste work,
+    /// but it must never drop a line whose decoded text matches.
+    #[test]
+    fn prefilter_never_produces_a_false_negative() {
+        let texts = [
+            "plain text",
+            r#"has "quotes" inside"#,
+            r"a backslash \ here",
+            "tab\there",
+            "line one\nline two",
+            "café ☕ unicode",
+            r#"{"nested":"json"}"#,
+            r"C:\Users\path",
+        ];
+        let patterns = [
+            "plain", "quotes", "backslash", "here", "line two", "café", "nested",
+            r#"has "quotes""#, r"\ here", "Users", "☕",
+        ];
+
+        for text in texts {
+            let raw = serde_json::to_vec(&json!({
+                "type": "user",
+                "message": {"content": text}
+            }))
+            .unwrap();
+
+            for pat in patterns {
+                let re = Regex::new(&format!("(?i){}", regex::escape(pat))).unwrap();
+                let decoded_matches = text.split('\n').any(|l| re.is_match(l));
+                if !decoded_matches {
+                    continue;
+                }
+                let pre = BytesRegex::new(re.as_str()).unwrap();
+                assert!(
+                    might_match(&raw, Some(&pre)),
+                    "false negative: pattern {pat:?} against text {text:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn claude_home_honours_the_env_var() {
+        // Guards the escape hatch the tests themselves depend on.
+        let prev = std::env::var_os("CLAUDE_HOME");
+        std::env::set_var("CLAUDE_HOME", "/tmp/some-corpus");
+        assert_eq!(claude_home(), PathBuf::from("/tmp/some-corpus"));
+        assert_eq!(projects_dir(), PathBuf::from("/tmp/some-corpus/projects"));
+        match prev {
+            Some(v) => std::env::set_var("CLAUDE_HOME", v),
+            None => std::env::remove_var("CLAUDE_HOME"),
+        }
+    }
+}

@@ -111,3 +111,123 @@ pub fn take_chars(s: &str, n: usize) -> &str {
         None => s,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    const ALL: BlockOpts = BlockOpts { thinking: true, tools: true };
+    const TEXT_ONLY: BlockOpts = BlockOpts { thinking: false, tools: false };
+
+    #[test]
+    fn take_chars_counts_characters_not_bytes() {
+        assert_eq!(take_chars("hello", 3), "hel");
+        assert_eq!(take_chars("hello", 99), "hello");
+        assert_eq!(take_chars("", 5), "");
+        // Would panic on a byte slice: each of these is multi-byte.
+        assert_eq!(take_chars("héllo", 2), "hé");
+        assert_eq!(take_chars("日本語テスト", 3), "日本語");
+        assert_eq!(take_chars("🙂🙃🙂", 2), "🙂🙃");
+    }
+
+    #[test]
+    fn stringify_matches_jq_tostring() {
+        // jq's tostring leaves strings unquoted but renders everything else as JSON.
+        assert_eq!(stringify(&json!("plain")), "plain");
+        assert_eq!(stringify(&json!("has \"quotes\"")), "has \"quotes\"");
+        assert_eq!(stringify(&json!(42)), "42");
+        assert_eq!(stringify(&json!(null)), "null");
+        assert_eq!(stringify(&json!({"a": 1})), r#"{"a":1}"#);
+        assert_eq!(stringify(&json!([1, 2])), "[1,2]");
+    }
+
+    #[test]
+    fn string_content_is_a_single_block() {
+        let v = json!({"message": {"content": "bare string"}});
+        assert_eq!(Record::new(&v).blocks(ALL), vec!["bare string"]);
+    }
+
+    #[test]
+    fn missing_or_odd_content_yields_nothing() {
+        for v in [
+            json!({}),
+            json!({"message": {}}),
+            json!({"message": {"content": null}}),
+            json!({"message": {"content": 7}}),
+        ] {
+            assert!(Record::new(&v).blocks(ALL).is_empty(), "{v}");
+        }
+    }
+
+    #[test]
+    fn thinking_and_tool_blocks_are_gated_by_opts() {
+        let v = json!({"message": {"content": [
+            {"type": "text", "text": "visible"},
+            {"type": "thinking", "thinking": "pondering"},
+            {"type": "tool_use", "name": "Bash", "input": {"cmd": "ls"}},
+            {"type": "tool_result", "content": "output here"},
+        ]}});
+        let r = Record::new(&v);
+
+        assert_eq!(r.blocks(TEXT_ONLY), vec!["visible"]);
+        assert_eq!(
+            r.blocks(ALL),
+            vec![
+                "visible",
+                "pondering",
+                r#"Bash {"cmd":"ls"}"#,
+                "output here",
+            ]
+        );
+        assert_eq!(
+            r.blocks(BlockOpts { thinking: true, tools: false }),
+            vec!["visible", "pondering"]
+        );
+    }
+
+    #[test]
+    fn unknown_and_malformed_blocks_are_skipped_not_fatal() {
+        // The transcript format drifts; an unrecognised block must not kill the line.
+        let v = json!({"message": {"content": [
+            {"type": "some_future_block", "payload": "ignored"},
+            {"no_type_field": true},
+            {"type": "text", "text": "still here"},
+        ]}});
+        assert_eq!(Record::new(&v).blocks(ALL), vec!["still here"]);
+    }
+
+    #[test]
+    fn tool_use_without_a_name_falls_back() {
+        let v = json!({"message": {"content": [
+            {"type": "tool_use", "input": {}},
+        ]}});
+        assert_eq!(Record::new(&v).blocks(ALL), vec!["tool {}"]);
+    }
+
+    #[test]
+    fn field_accessors_default_rather_than_panic() {
+        let empty = json!({});
+        let r = Record::new(&empty);
+        assert_eq!(r.kind(), "");
+        assert_eq!(r.cwd(), "");
+        assert_eq!(r.session_id(), "");
+        assert_eq!(r.timestamp(), "");
+        assert!(!r.is_meta());
+        assert!(!r.is_sidechain());
+        assert!(!r.is_conversation());
+    }
+
+    #[test]
+    fn only_user_and_assistant_count_as_conversation() {
+        for (ty, want) in [
+            ("user", true),
+            ("assistant", true),
+            ("queue-operation", false),
+            ("summary", false),
+        ] {
+            let v = json!({"type": ty});
+            assert_eq!(Record::new(&v).is_conversation(), want, "type={ty}");
+        }
+    }
+}

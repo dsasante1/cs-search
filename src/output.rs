@@ -106,3 +106,97 @@ fn highlight(s: &str, re: &Regex) -> String {
     out.push_str(&s[last..]);
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row() -> Row {
+        Row {
+            ts: "2026-08-19 03:18".into(),
+            project: "proj".into(),
+            role: "user".into(),
+            sid: "1e59cda9".into(),
+            text: "hello world".into(),
+        }
+    }
+
+    #[test]
+    fn squash_collapses_runs_and_strips_one_leading_space() {
+        assert_eq!(squash("a  b"), "a b");
+        assert_eq!(squash("a\t\tb"), "a b");
+        assert_eq!(squash("a\n b"), "a b");
+        assert_eq!(squash("   a"), "a");
+        // jq's ltrimstr(" ") removes a single leading space, and nothing trailing.
+        assert_eq!(squash("a   "), "a ");
+        assert_eq!(squash(""), "");
+    }
+
+    #[test]
+    fn clip_appends_ellipsis_only_when_it_cuts() {
+        assert_eq!(clip("hello", 10), "hello");
+        assert_eq!(clip("hello", 5), "hello");
+        assert_eq!(clip("hello", 4), "hell…");
+        assert_eq!(clip("日本語テスト", 3), "日本語…");
+    }
+
+    #[test]
+    fn fixed_truncates_then_pads_like_awk() {
+        // awk's %-5.5s
+        assert_eq!(fixed("abc", 5), "abc  ");
+        assert_eq!(fixed("abcdefgh", 5), "abcde");
+        assert_eq!(fixed("", 3), "   ");
+        // Padding is by character, so a multi-byte name still lines up.
+        assert_eq!(fixed("日本", 4).chars().count(), 4);
+    }
+
+    #[test]
+    fn pad_never_truncates() {
+        assert_eq!(pad("ab", 4), "ab  ");
+        assert_eq!(pad("abcdef", 4), "abcdef");
+    }
+
+    #[test]
+    fn plain_render_has_no_escape_sequences() {
+        let out = row().render(false, None);
+        assert_eq!(out, "2026-08-19 03:18 proj             user 1e59cda9  hello world");
+        assert!(!out.contains('\u{1b}'));
+    }
+
+    #[test]
+    fn colour_render_wraps_fields_and_highlights_matches() {
+        let re = Regex::new("world").unwrap();
+        let out = row().render(true, Some(&re));
+        assert!(out.contains(CYAN), "project should be cyan");
+        assert!(out.contains(&format!("{HIT}world{RESET}")), "match should stand out");
+    }
+
+    #[test]
+    fn highlight_wraps_every_match_and_preserves_text() {
+        let re = Regex::new("(?i)ab").unwrap();
+        let out = highlight("ab cd AB", &re);
+        assert_eq!(out, format!("{HIT}ab{RESET} cd {HIT}AB{RESET}"));
+        // Stripping the escapes must give the original back.
+        assert_eq!(out.replace(HIT, "").replace(RESET, ""), "ab cd AB");
+    }
+
+    #[test]
+    fn highlight_leaves_non_matching_text_alone() {
+        let re = Regex::new("zzz").unwrap();
+        assert_eq!(highlight("nothing here", &re), "nothing here");
+    }
+
+    #[test]
+    fn sort_key_orders_by_timestamp_first() {
+        let mut rows = vec![
+            Row { ts: "2026-08-19 03:18".into(), ..row_with("b") },
+            Row { ts: "2026-01-01 00:00".into(), ..row_with("a") },
+        ];
+        rows.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
+        assert_eq!(rows[0].ts, "2026-01-01 00:00");
+    }
+
+    fn row_with(text: &str) -> Row {
+        Row { text: text.into(), ..row() }
+    }
+}
