@@ -182,23 +182,29 @@ fn no_matches(opts: &Opts, re: &Regex) -> i32 {
         return 1;
     }
 
-    let hints = widening_hints(opts);
-    let widened = widenings(opts, re);
+    for l in no_match_report(&widenings(opts, re), &widening_hints(opts)) {
+        eprintln!("{l}");
+    }
+    1
+}
+
+/// The advice under "no matches", as lines. Split out from printing it so the
+/// wording and alignment can be tested without a corpus or a terminal.
+fn no_match_report(widened: &[(usize, String)], hints: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
     if !widened.is_empty() {
         let digits = widened.iter().map(|(n, _)| n.to_string().len()).max().unwrap_or(1);
-        eprintln!();
-        for (n, flag) in &widened {
+        out.push(String::new());
+        for (n, flag) in widened {
             let plural = if *n == 1 { "match " } else { "matches" };
-            eprintln!("  {n:>digits$} {plural} without  {flag}");
+            out.push(format!("  {n:>digits$} {plural} without  {flag}"));
         }
     }
     if !hints.is_empty() {
-        eprintln!();
-        for h in hints {
-            eprintln!("  {h}");
-        }
+        out.push(String::new());
+        out.extend(hints.iter().map(|h| format!("  {h}")));
     }
-    1
+    out
 }
 
 /// Which searches to re-run: one per filter that is actually narrowing this
@@ -275,7 +281,13 @@ fn show_command(args: &[OsString]) -> i32 {
             "--highlight" => o.highlight = take(),
             "--at" => o.at = take(),
             "--role" | "-r" => {
-                o.role = rest.next().and_then(|v| v.to_str()).unwrap_or("").to_owned()
+                o.role = rest.next().and_then(|v| v.to_str()).unwrap_or("").to_owned();
+                // Without this a typo silently produced the *unfiltered*
+                // transcript, which looks exactly like a filtered one.
+                if o.role != "user" && o.role != "assistant" {
+                    eprintln!("--role must be 'user' or 'assistant', got: {}", o.role);
+                    return 2;
+                }
             }
             "--color" => o.color = true,
             "--no-pager" => o.pager = false,
@@ -331,6 +343,32 @@ mod tests {
         assert!(without_project.project.is_empty(), "the named filter is gone");
         assert_eq!(without_project.role, "user", "the others are untouched");
         assert_eq!(without_project.pattern, "needle");
+    }
+
+    #[test]
+    fn the_report_names_each_filter_and_what_it_costs() {
+        let widened = vec![(14, "-P callout".to_owned()), (1, "-r user".to_owned())];
+        let lines = no_match_report(&widened, &["-t  also searches tools".into()]);
+        let text = lines.join("\n");
+        assert!(text.contains("14 matches without  -P callout"), "{text}");
+        assert!(text.contains(" 1 match  without  -r user"), "{text}");
+        assert!(text.contains("-t  also searches tools"), "{text}");
+    }
+
+    #[test]
+    fn the_counts_line_up_whatever_their_magnitude() {
+        let widened = vec![(9, "-n".to_owned()), (1234, "-P x".to_owned())];
+        let lines = no_match_report(&widened, &[]);
+        let counted: Vec<&String> = lines.iter().filter(|l| l.contains("without")).collect();
+        let at = |l: &str| l.find("without").unwrap();
+        assert_eq!(at(counted[0]), at(counted[1]), "{counted:?}");
+    }
+
+    #[test]
+    fn a_report_with_nothing_to_say_says_nothing() {
+        // No filter was costing anything and there is nothing left to widen:
+        // printing a bare blank line under "no matches" would be worse.
+        assert!(no_match_report(&[], &[]).is_empty());
     }
 
     #[test]

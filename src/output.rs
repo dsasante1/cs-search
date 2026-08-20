@@ -41,14 +41,23 @@ pub fn is_tty() -> bool {
 /// The ioctl asks stderr before stdout because stdout is so often a pipe here —
 /// a pager, or fzf — while stderr is still the terminal.
 pub fn term_width() -> usize {
-    for var in ["FZF_PREVIEW_COLUMNS", "COLUMNS"] {
-        if let Some(w) = std::env::var(var).ok().and_then(|v| v.parse::<usize>().ok()) {
-            if w > 0 {
-                return w;
-            }
-        }
-    }
-    tty_width().unwrap_or(80)
+    env_width("FZF_PREVIEW_COLUMNS")
+        .or_else(|| env_width("COLUMNS"))
+        .or_else(tty_width)
+        .unwrap_or(FALLBACK_WIDTH)
+}
+
+/// Assumed width when nothing will say: the one every terminal is at least.
+const FALLBACK_WIDTH: usize = 80;
+
+fn env_width(var: &str) -> Option<usize> {
+    parse_width(std::env::var(var).ok().as_deref())
+}
+
+/// A width is only usable if it parses and is non-zero — these variables are
+/// routinely set to junk, or exported as empty by a shell that never had a tty.
+fn parse_width(raw: Option<&str>) -> Option<usize> {
+    raw?.trim().parse::<usize>().ok().filter(|w| *w > 0)
 }
 
 #[cfg(unix)]
@@ -508,6 +517,84 @@ mod tests {
         let out = row().render(true, Some(&re), 8);
         assert!(out.contains(CYAN), "project should be cyan");
         assert!(out.contains(&format!("{HIT}world{RESET}")), "match should stand out");
+    }
+
+    #[test]
+    fn a_search_row_spends_colour_only_on_the_project_and_the_match() {
+        // The role column used to be magenta, immediately left of the match and
+        // competing with it. Colour here has to mean "this is what you asked
+        // for", so magenta is gone from the row entirely.
+        let re = Regex::new("world").unwrap();
+        let out = row().render(true, Some(&re), 8);
+        assert!(!out.contains(MAGENTA), "the role column must not be magenta: {out:?}");
+
+        let mut buf: Vec<u8> = Vec::new();
+        print_grouped(&mut buf, &[row()], true, Some(&re));
+        let grouped = String::from_utf8(buf).unwrap();
+        assert!(!grouped.contains(MAGENTA), "nor in grouped output: {grouped:?}");
+    }
+
+    #[test]
+    fn a_width_is_only_taken_when_it_parses_and_is_usable() {
+        assert_eq!(parse_width(Some("120")), Some(120));
+        assert_eq!(parse_width(Some(" 80 ")), Some(80));
+        // A shell with no tty exports these empty or zero; neither is a width.
+        assert_eq!(parse_width(Some("")), None);
+        assert_eq!(parse_width(Some("0")), None);
+        assert_eq!(parse_width(Some("wide")), None);
+        assert_eq!(parse_width(Some("-40")), None);
+        assert_eq!(parse_width(None), None);
+    }
+
+    #[test]
+    fn a_width_is_always_produced_even_with_nothing_to_go_on() {
+        // Called for every divider, so it must never fail to answer.
+        assert!(term_width() > 0);
+    }
+
+    #[test]
+    fn group_headings_lead_with_a_marker_and_align_their_counts() {
+        let mk = |sid: &str, project: &str| Row {
+            sid: sid.into(),
+            project: project.into(),
+            ..row()
+        };
+        // Deliberately mismatched name lengths: alignment is the whole point.
+        let rows = [mk("aaaaaaaa", "cs"), mk("bbbbbbbb", "dashqard-customer-api")];
+        let out = rendered(&rows, true);
+
+        let headings: Vec<&str> = out.lines().filter(|l| l.starts_with('▸')).collect();
+        assert_eq!(headings.len(), 2, "one marker per group:\n{out}");
+
+        let at = |l: &str| l.find("1 match").expect("every heading carries its count");
+        assert_eq!(
+            at(headings[0]),
+            at(headings[1]),
+            "counts must start in the same column:\n{out}"
+        );
+        // The short-named group is the one that had to be padded out.
+        assert!(headings[0].contains("cs "), "{:?}", headings[0]);
+    }
+
+    #[test]
+    fn the_count_gutter_is_measured_without_escape_sequences() {
+        // Padding computed over coloured text would be wrong by however many
+        // bytes the escapes take, so plain and coloured must agree.
+        let mk = |sid: &str, project: &str| Row {
+            sid: sid.into(),
+            project: project.into(),
+            ..row()
+        };
+        let rows = [mk("aaaaaaaa", "cs"), mk("bbbbbbbb", "dashqard-customer-api")];
+
+        let plain = rendered(&rows, true);
+        let mut buf: Vec<u8> = Vec::new();
+        print_grouped(&mut buf, &rows, true, None);
+        let painted = String::from_utf8(buf).unwrap();
+        let strip = |s: &str| {
+            s.replace(DIM, "").replace(CYAN, "").replace(BOLD, "").replace(RESET, "")
+        };
+        assert_eq!(strip(&painted), plain, "colour must not move the gutter");
     }
 
     #[test]

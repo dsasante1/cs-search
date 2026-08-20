@@ -114,6 +114,18 @@ impl Corpus {
         Run::from(out)
     }
 
+    /// Run with extra environment, for the settings the binary reads from it.
+    fn run_env(&self, args: &[&str], env: &[(&str, &str)]) -> Run {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_cs"));
+        cmd.args(args)
+            .env("CLAUDE_HOME", &self.root)
+            .env_remove("CS_NO_PREFILTER");
+        for (k, v) in env {
+            cmd.env(k, v);
+        }
+        Run::from(cmd.output().expect("failed to run cs"))
+    }
+
     fn run_full_decode(&self, args: &[&str]) -> Run {
         let out = Command::new(env!("CARGO_BIN_EXE_cs"))
             .args(args)
@@ -449,6 +461,61 @@ fn show_reads_one_side_of_the_conversation() {
     assert!(theirs.stdout.contains("make build"), "{}", theirs.stdout);
     assert!(!theirs.stdout.contains("── YOU"), "{}", theirs.stdout);
     assert!(!theirs.stdout.contains("SELECT * FROM users"), "{}", theirs.stdout);
+}
+
+#[test]
+fn the_divider_is_drawn_to_the_width_it_is_told_about() {
+    // A rule sized for 80 columns wraps into nonsense inside a narrow fzf
+    // preview pane, so the width has to come from the environment.
+    let c = Corpus::new();
+    for width in ["40", "100"] {
+        let r = c.run_env(&["show", SID_A], &[("COLUMNS", width)]);
+        let rule = r
+            .lines()
+            .iter()
+            .find(|l| l.starts_with("── YOU"))
+            .unwrap_or_else(|| panic!("no divider at COLUMNS={width}"))
+            .to_string();
+        assert_eq!(
+            rule.chars().count(),
+            width.parse::<usize>().unwrap(),
+            "COLUMNS={width}: {rule}"
+        );
+    }
+}
+
+#[test]
+fn the_preview_pane_width_wins_over_the_terminal_width() {
+    // fzf runs the preview as a child of a full-width terminal, so COLUMNS
+    // would be wrong there; FZF_PREVIEW_COLUMNS is the honest answer.
+    let c = Corpus::new();
+    let r = c.run_env(
+        &["show", SID_A],
+        &[("COLUMNS", "200"), ("FZF_PREVIEW_COLUMNS", "45")],
+    );
+    let rule = r.lines().iter().find(|l| l.starts_with("── YOU")).unwrap().to_string();
+    assert_eq!(rule.chars().count(), 45, "{rule}");
+}
+
+#[test]
+fn a_junk_width_falls_back_rather_than_drawing_nothing() {
+    let c = Corpus::new();
+    for junk in ["", "0", "wide"] {
+        let r = c.run_env(&["show", SID_A], &[("COLUMNS", junk)]);
+        let rule = r.lines().iter().find(|l| l.starts_with("── YOU")).unwrap().to_string();
+        assert_eq!(rule.chars().count(), 80, "COLUMNS={junk:?} should fall back");
+    }
+}
+
+#[test]
+fn show_rejects_a_role_that_is_not_a_speaker() {
+    // Silently showing the whole transcript would look exactly like a filtered
+    // one, which is the worst of both.
+    let c = Corpus::new();
+    let r = c.run(&["show", SID_A, "-r", "robot"]);
+    assert_eq!(r.code, 2, "stdout: {}", r.stdout);
+    assert!(r.stderr.contains("--role"), "stderr: {}", r.stderr);
+    assert!(r.stdout.is_empty(), "nothing should be printed: {}", r.stdout);
 }
 
 #[test]
@@ -886,6 +953,19 @@ fn group_folds_matches_under_one_heading_per_session() {
         );
     }
     assert!(r.stdout.contains("matches") || r.stdout.contains("match"), "{}", r.stdout);
+}
+
+#[test]
+fn grouped_headings_are_marked_and_their_counts_aligned() {
+    let c = Corpus::new();
+    let r = c.run(&["--group", "needle"]);
+    let headings: Vec<&str> = r.lines().iter().filter(|l| l.starts_with('▸')).copied().collect();
+    assert_eq!(headings.len(), 2, "one marker per session:\n{}", r.stdout);
+
+    // The two projects have different name lengths, so aligning the counts is
+    // what the gutter is for.
+    let at = |l: &str| l.find("match").expect("a heading carries its count");
+    assert_eq!(at(headings[0]), at(headings[1]), "counts should align:\n{}", r.stdout);
 }
 
 #[test]
