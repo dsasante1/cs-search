@@ -8,6 +8,7 @@ cs -F 'useState('                # match the pattern literally, not as a regex
 cs -p 'rate limit'               # only your own prompts (history.jsonl)
 cs -C 2 'ALTER TABLE'            # with two lines of surrounding context
 cs show 3f2a1b9c                 # one session as a readable transcript
+cs show 3f2a1b9c -r user         # only the half of it you typed
 cs sessions dashqard             # sessions newest-first, with their opening prompt
 cs projects                      # what -P can be given
 cs resume 3f2a1b9c               # reopen that session in Claude Code
@@ -40,7 +41,8 @@ are keys rather than flags you have to quit and retype:
 | `alt-p` | filter to the project under the cursor, or clear it |
 | `alt-c` | clear every filter |
 
-The header shows which filters are on. The bindings use `transform-header` and
+The header names only the filters that are actually on, so an unnarrowed search
+says nothing and the line's presence is itself the signal. The bindings use `transform-header` and
 `become`, so they want a reasonably recent fzf — 0.38 or newer, and 0.74 is what
 this was tested against. Without fzf at all, results are printed instead.
 
@@ -61,6 +63,48 @@ dashqard-customer-backend-api 4258e94f  2026-08-02 10:17  38 matches
 
 `--no-group` gives one line per match instead. A count of matches, sessions and
 projects goes to stderr when a person is there to read it.
+
+Colour is spent where it carries something: the project, and the match. The role
+column is dim rather than magenta — beside a highlighted hit, a coloured role was
+just competing with it.
+
+### Reading a session
+
+`cs show` divides the transcript at every handover with a rule the width of the
+terminal, rather than the old `=== CC 12:00 ===`, which read as decoration and
+let the two speakers run together down the page:
+
+```
+── YOU 2026-08-03 16:31 ──────────────────────────────────────────────────
+run it against staging first
+
+── CC  2026-08-03 16:31 ──────────────────────────────────────────────────
+Now I'll implement. Starting with the migrations.
+```
+
+`-r user` or `-r assistant` reads one side alone. `-r user` means *what you
+typed*: tool results arrive as user-type records, and a filtered view half full
+of machine output filed under your name is not what the flag is for, so those
+are dropped.
+
+### When nothing matches
+
+Five filters can each independently empty a search, and `no matches` named none
+of them. At a terminal each active filter is now lifted in turn and the search
+re-run, so the report says which one cost what:
+
+```
+$ cs -P callout 'ALTER TABLE'
+no matches for 'ALTER TABLE'
+
+  14 matches without  -P callout
+
+  -t  also searches tool calls and results
+```
+
+That is up to five extra scans, paid only on an empty result and only for a
+person at a terminal — piped, the answer is the same single line at the same
+speed as before.
 
 ### Patterns
 
@@ -164,14 +208,15 @@ avoids the work.
 cargo test
 ```
 
-170 tests, needing no network and no fixtures beyond what the suite creates and
+192 tests, needing no network and no fixtures beyond what the suite creates and
 cleans up itself:
 
 - **Unit tests** sit inline in each module and cover the pure helpers —
   character-wise truncation and padding, jq-equivalent `tostring`, block
   flattening and its gating, argument parsing, the prefilter's two guards,
-  middle-elision, session grouping, the picker's state transitions, and the fzf
-  command line the picker is launched with.
+  middle-elision, session grouping, the picker's state transitions, the fzf
+  command line the picker is launched with, the transcript divider's geometry in
+  both colour and plain form, and which filters an empty result probes.
 - **Integration tests** (`tests/cli.rs`) build a synthetic corpus in a temp
   directory, point the binary at it with `CLAUDE_HOME`, and assert on real
   output. The fixture is hand-written, so the suite carries no personal data.
@@ -201,7 +246,7 @@ makes the suite fail.
 | `src/record.rs` | transcript record model, block flattening |
 | `src/sessions.rs` | `cs sessions` |
 | `src/projects.rs` | `cs projects` |
-| `src/show.rs` | `cs show`, including the jump-to-match and pager |
+| `src/show.rs` | `cs show`: speaker dividers, role filter, jump-to-match, pager |
 | `src/resume.rs` | `cs resume` |
 | `src/prompts.rs` | `cs -p` |
 | `src/interactive.rs` | the picker: the fzf command line and what comes back |

@@ -33,6 +33,58 @@ pub fn is_tty() -> bool {
     std::io::stdout().is_terminal()
 }
 
+/// Width of the terminal this output will land in.
+///
+/// Checked in order of how much each source actually knows. fzf exports the
+/// preview pane's width, and that is the case that matters most: a rule sized
+/// for an 80-column terminal wraps into nonsense inside a 45-column preview.
+/// The ioctl asks stderr before stdout because stdout is so often a pipe here —
+/// a pager, or fzf — while stderr is still the terminal.
+pub fn term_width() -> usize {
+    for var in ["FZF_PREVIEW_COLUMNS", "COLUMNS"] {
+        if let Some(w) = std::env::var(var).ok().and_then(|v| v.parse::<usize>().ok()) {
+            if w > 0 {
+                return w;
+            }
+        }
+    }
+    tty_width().unwrap_or(80)
+}
+
+#[cfg(unix)]
+fn tty_width() -> Option<usize> {
+    #[repr(C)]
+    struct Winsize {
+        rows: u16,
+        cols: u16,
+        xpixel: u16,
+        ypixel: u16,
+    }
+    // The request number is part of the platform ABI, not a portable constant.
+    #[cfg(target_os = "linux")]
+    const TIOCGWINSZ: u64 = 0x5413;
+    #[cfg(not(target_os = "linux"))]
+    const TIOCGWINSZ: u64 = 0x4008_7468;
+
+    extern "C" {
+        fn ioctl(fd: i32, request: u64, ...) -> i32;
+    }
+    let mut ws = Winsize { rows: 0, cols: 0, xpixel: 0, ypixel: 0 };
+    for fd in [2, 1] {
+        // Safe: the kernel writes exactly one Winsize through the pointer, and
+        // a non-tty fd fails with -1 rather than touching it.
+        if unsafe { ioctl(fd, TIOCGWINSZ, &mut ws) } == 0 && ws.cols > 0 {
+            return Some(ws.cols as usize);
+        }
+    }
+    None
+}
+
+#[cfg(not(unix))]
+fn tty_width() -> Option<usize> {
+    None
+}
+
 /// Progress and summary lines are diagnostics, so they follow stderr's terminal
 /// status rather than stdout's: `cs x > file` on a terminal should still say how
 /// much it found, and `cs x | wc -l` in a script should stay silent.
@@ -66,7 +118,7 @@ impl Row {
         let role = pad(&self.role, 4);
         let mut out = if color {
             format!(
-                "{DIM}{}{RESET} {CYAN}{proj}{RESET} {MAGENTA}{role}{RESET} {DIM}{}{RESET}  {}",
+                "{DIM}{}{RESET} {CYAN}{proj}{RESET} {DIM}{role}{RESET} {DIM}{}{RESET}  {}",
                 self.ts,
                 self.sid,
                 highlighted(&self.text, hl),
@@ -215,7 +267,19 @@ pub fn print_grouped(w: &mut impl Write, rows: &[Row], color: bool, hl: Option<&
     } else {
         ("", "", "", "")
     };
-    for (i, g) in group_by_session(rows).iter().enumerate() {
+    let groups = group_by_session(rows);
+    // Counts line up in a column of their own, so "which session has the most
+    // hits" is a glance down the right-hand edge rather than a read of every
+    // heading. The gutter is measured from the plain text: escape sequences
+    // occupy no columns, so padding computed with them in would be wrong.
+    let gutter = groups
+        .iter()
+        .map(|g| heading_width(g[0]))
+        .max()
+        .unwrap_or(0)
+        + 2;
+
+    for (i, g) in groups.iter().enumerate() {
         let head = g[0];
         if i > 0 {
             let _ = writeln!(w);
@@ -223,10 +287,11 @@ pub fn print_grouped(w: &mut impl Write, rows: &[Row], color: bool, hl: Option<&
         let plural = if g.len() == 1 { "match" } else { "matches" };
         let _ = writeln!(
             w,
-            "{b}{c}{}{z} {d}{}{z}  {d}{}{z}  {d}{} {plural}{z}",
+            "{d}▸{z} {b}{c}{}{z} {d}{}{z}  {d}{}{z}{}{d}{} {plural}{z}",
             head.project,
             head.sid,
             head.ts,
+            " ".repeat(gutter.saturating_sub(heading_width(head))),
             g.len(),
         );
         for r in g.iter().take(PER_GROUP) {
@@ -235,8 +300,7 @@ pub fn print_grouped(w: &mut impl Write, rows: &[Row], color: bool, hl: Option<&
             let when = when.get(5..).unwrap_or(when);
             let _ = writeln!(
                 w,
-                "  {d}{when}{z} {}{}{z} {}",
-                if color { MAGENTA } else { "" },
+                "  {d}{when}{z} {d}{}{z} {}",
                 pad(&r.role, 4),
                 highlighted(&r.text, hl),
             );
@@ -261,6 +325,12 @@ pub fn print_json(w: &mut impl Write, rows: &[Row]) {
     for r in rows {
         let _ = writeln!(w, "{}", r.to_json());
     }
+}
+
+/// Printed width of a heading up to where its count begins.
+fn heading_width(head: &Row) -> usize {
+    // "▸ " + project + " " + sid + "  " + ts
+    2 + head.project.chars().count() + 1 + head.sid.chars().count() + 2 + head.ts.chars().count()
 }
 
 fn group_by_session(rows: &[Row]) -> Vec<Vec<&Row>> {

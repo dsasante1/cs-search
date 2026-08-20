@@ -15,6 +15,7 @@ USAGE
   cs -p <pattern>           search only YOUR prompts (fast; uses history.jsonl)
   cs -i [opts] <pattern>    interactive picker (fzf); typing re-searches live
   cs show <session-id>      print one session as a readable transcript
+                            -r user|assistant reads one side of it only
   cs sessions [substr]      list sessions newest-first, with their first prompt
   cs projects [substr]      list projects with session counts
   cs resume <session-id>    reopen that session in Claude Code
@@ -40,6 +41,7 @@ OUTPUT
       --group               group matches by session (the default on a terminal)
       --no-group            one line per match, ungrouped
       --json                one JSON object per match, one per line
+      --preview <right|bottom>  where the picker draws the transcript
   -j, --jobs <n>            worker threads (default: CPU count)
   -h, --help
 
@@ -75,6 +77,8 @@ pub struct Opts {
     pub plain: bool,
     pub json: bool,
     pub grouping: Grouping,
+    /// Which edge of the picker the preview pane sits on.
+    pub preview: String,
     pub before: usize,
     pub after: usize,
 }
@@ -100,6 +104,7 @@ impl Default for Opts {
             plain: false,
             json: false,
             grouping: Grouping::Auto,
+            preview: "right".into(),
             before: 0,
             after: 0,
         }
@@ -187,6 +192,7 @@ pub fn parse(args: &[OsString]) -> Result<Parsed, String> {
             Long("group") => o.grouping = Grouping::Always,
             Long("no-group") => o.grouping = Grouping::Never,
             Long("json") => o.json = true,
+            Long("preview") => o.preview = value(&mut p, "--preview")?,
             Short('h') | Long("help") => return Ok(Parsed::Help),
             Value(v) => {
                 o.pattern = v.into_string().map_err(|v| {
@@ -204,6 +210,10 @@ pub fn parse(args: &[OsString]) -> Result<Parsed, String> {
 
     if !o.role.is_empty() && o.role != "user" && o.role != "assistant" {
         return Err(format!("--role must be 'user' or 'assistant', got: {}", o.role));
+    }
+
+    if o.preview != "right" && o.preview != "bottom" {
+        return Err(format!("--preview must be 'right' or 'bottom', got: {}", o.preview));
     }
 
     Ok(Parsed::Search(Box::new(o)))
@@ -268,6 +278,13 @@ mod tests {
         assert!(o.plain && o.json && o.fixed);
         assert_eq!(o.grouping, Grouping::Never);
         assert_eq!(opts(&["--group", "needle"]).grouping, Grouping::Always);
+    }
+
+    #[test]
+    fn preview_placement_is_right_unless_asked_otherwise() {
+        assert_eq!(opts(&["needle"]).preview, "right");
+        assert_eq!(opts(&["--preview", "bottom", "needle"]).preview, "bottom");
+        assert!(err(&["--preview", "sideways", "needle"]).contains("--preview"));
     }
 
     #[test]
@@ -415,6 +432,7 @@ mod tests {
         for flag in [
             "-P", "-r", "-t", "-T", "-s", "-c", "-l", "-n", "-j", "-h", "-p", "-i",
             "-F", "-C", "-A", "-B", "--plain", "--group", "--no-group", "--json",
+            "--preview",
         ] {
             assert!(USAGE.contains(flag), "usage text is missing {flag}");
         }

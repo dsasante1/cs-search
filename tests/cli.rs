@@ -63,6 +63,10 @@ impl Corpus {
                     json!("meta noise needle"))),
                 sidechain(msg("assistant", SID_A, "/home/u/alpha", "2026-07-01T10:05:00Z",
                     json!("subagent needle"))),
+                // A tool result arrives as a *user*-type record even though the
+                // user typed none of it.
+                msg("user", SID_A, "/home/u/alpha", "2026-07-01T10:06:00Z",
+                    json!([{"type": "tool_result", "content": "zzresultonly payload"}])),
             ],
         );
 
@@ -413,18 +417,70 @@ fn prefilter_agrees_with_full_decode_under_tools() {
 // ------------------------------------------------------------------ subcommands
 
 #[test]
-fn show_renders_a_transcript_with_speaker_headers() {
+fn show_divides_the_two_speakers_with_a_rule() {
     let c = Corpus::new();
     let r = c.run(&["show", SID_A]);
     assert_eq!(r.code, 0);
-    assert!(r.stdout.contains("=== YOU"), "{}", r.stdout);
-    assert!(r.stdout.contains("=== CC"), "{}", r.stdout);
+    assert!(r.stdout.contains("── YOU"), "{}", r.stdout);
+    assert!(r.stdout.contains("── CC"), "{}", r.stdout);
+    assert!(!r.stdout.contains("==="), "the old === form is gone:\n{}", r.stdout);
+    // The rule runs the width of the terminal rather than bracketing a label.
+    let rule = r.lines().iter().find(|l| l.starts_with("── YOU")).unwrap().to_string();
+    assert!(rule.ends_with('─'), "{rule}");
+    assert!(rule.chars().count() > 40, "{rule}");
     assert!(r.stdout.contains("SELECT * FROM users"));
     // show always includes thinking and tools, regardless of search flags.
     assert!(r.stdout.contains("[thinking]"), "{}", r.stdout);
     assert!(r.stdout.contains("[tool: Bash]"), "{}", r.stdout);
     // The path is reported on stderr so stdout stays pipeable.
     assert!(r.stderr.contains(SID_A));
+}
+
+#[test]
+fn show_reads_one_side_of_the_conversation() {
+    let c = Corpus::new();
+    let yours = c.run(&["show", SID_A, "-r", "user"]);
+    assert_eq!(yours.code, 0, "stderr: {}", yours.stderr);
+    assert!(yours.stdout.contains("SELECT * FROM users"), "{}", yours.stdout);
+    assert!(!yours.stdout.contains("── CC"), "no assistant turns:\n{}", yours.stdout);
+    assert!(!yours.stdout.contains("make build"), "{}", yours.stdout);
+
+    let theirs = c.run(&["show", SID_A, "--role", "assistant"]);
+    assert!(theirs.stdout.contains("make build"), "{}", theirs.stdout);
+    assert!(!theirs.stdout.contains("── YOU"), "{}", theirs.stdout);
+    assert!(!theirs.stdout.contains("SELECT * FROM users"), "{}", theirs.stdout);
+}
+
+#[test]
+fn reading_your_own_side_excludes_machine_output_filed_under_it() {
+    let c = Corpus::new();
+    let everything = c.run(&["show", SID_A]);
+    assert!(everything.stdout.contains("zzresultonly"), "unfiltered shows it all");
+
+    let yours = c.run(&["show", SID_A, "-r", "user"]);
+    assert!(yours.stdout.contains("SELECT * FROM users"), "what you typed stays");
+    assert!(
+        !yours.stdout.contains("zzresultonly"),
+        "a tool result is not something you said:\n{}",
+        yours.stdout
+    );
+}
+
+#[test]
+fn both_speakers_are_shown_unless_a_role_is_named() {
+    let c = Corpus::new();
+    let both = c.run(&["show", SID_A]);
+    assert!(both.stdout.contains("── YOU") && both.stdout.contains("── CC"));
+}
+
+#[test]
+fn a_role_with_no_turns_says_so_rather_than_printing_nothing() {
+    let c = Corpus::new();
+    // Session B has no user turns after the opening one; use a filter that
+    // genuinely empties a session instead of printing a blank page.
+    let r = c.run(&["show", SID_B, "-r", "assistant"]);
+    assert_eq!(r.code, 0, "session B does have assistant turns");
+    assert!(r.stdout.contains("beta project needle"));
 }
 
 #[test]
@@ -674,7 +730,7 @@ fn a_filter_key_changes_what_the_next_reload_returns() {
     let with = c.run(&["__rows", path, "zzsentinel"]);
     assert_eq!(with.count(), 1, "alt-t should bring tool blocks in: {}", with.stdout);
 
-    assert!(c.run(&["__header", path, "zzsentinel"]).stdout.contains("tools:on"));
+    assert!(c.run(&["__header", path, "zzsentinel"]).stdout.contains("+tools"));
     c.run(&["__toggle", path, "tools", ""]);
     assert!(c.run(&["__rows", path, "zzsentinel"]).stdout.is_empty(), "and take them out again");
 }

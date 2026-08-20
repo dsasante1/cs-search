@@ -98,22 +98,43 @@ pub fn toggle(path: &Path, field: &str, value: &str) {
     save(path, &o);
 }
 
-/// Two lines: what the keys do, and what is currently switched on.
+/// Two lines: what the keys do, and what is currently narrowing the search.
+///
+/// Only filters that are actually ON get printed. Listing all six every time —
+/// `tools:off thinking:on subagents:on role:any project:any since:any` — meant
+/// the default state was the noisiest thing on screen and said nothing. Now the
+/// line is empty until you narrow something, so its presence is the signal.
 pub fn header(path: &Path, query: &str) -> String {
     let o = load(path);
-    let on = |b: bool| if b { "on" } else { "off" };
-    let some = |s: &str| if s.is_empty() { "any".to_owned() } else { s.to_owned() };
     let scope = if o.prompts { "your prompts" } else { "all text" };
+    let mut active: Vec<String> = Vec::new();
+    if o.tools {
+        active.push("+tools".into());
+    }
+    if !o.thinking {
+        active.push("-thinking".into());
+    }
+    if o.no_sub {
+        active.push("-subagents".into());
+    }
+    if o.fixed {
+        active.push("literal".into());
+    }
+    for (name, value) in [("role", &o.role), ("project", &o.project), ("since", &o.since)] {
+        if !value.is_empty() {
+            active.push(format!("{name}:{value}"));
+        }
+    }
+
     format!(
         "{DIM}enter open · alt-enter resume · alt-t tools · alt-h thinking · \
-         alt-s subagents · alt-r role · alt-p this project · alt-c clear{RESET}\n\
-         {CYAN}{scope}{RESET}  tools:{}  thinking:{}  subagents:{}  role:{}  project:{}  since:{}{}",
-        on(o.tools),
-        on(o.thinking),
-        on(!o.no_sub),
-        some(&o.role),
-        some(&o.project),
-        some(&o.since),
+         alt-s subagents · alt-r role · alt-p this project · alt-c clear filters{RESET}\n\
+         {CYAN}{scope}{RESET}{}{}",
+        if active.is_empty() {
+            String::new()
+        } else {
+            format!("  {}", active.join("  "))
+        },
         if query.chars().count() < MIN_QUERY {
             format!("\n{DIM}type at least {MIN_QUERY} characters{RESET}")
         } else {
@@ -275,15 +296,52 @@ mod tests {
     }
 
     #[test]
-    fn the_header_reports_the_current_filters() {
+    fn the_header_names_only_what_is_switched_on() {
         let p = scratch("header");
         save(&p, &Opts { tools: true, role: "user".into(), ..Default::default() });
         let h = header(&p, "needle");
-        assert!(h.contains("tools:on"), "{h}");
-        assert!(h.contains("role:user"), "{h}");
-        assert!(h.contains("project:any"), "{h}");
+        // The key legend always names every key; it is the state line below it
+        // that has to stay quiet, so assert against that line alone.
+        let state = h.lines().nth(1).unwrap();
+        assert!(state.contains("+tools"), "{state}");
+        assert!(state.contains("role:user"), "{state}");
+        assert!(!state.contains("project:"), "an unset filter says nothing: {state}");
+        assert!(!state.contains("thinking"), "a default-on filter says nothing: {state}");
         assert!(h.contains("alt-t"), "the keys stay on screen: {h}");
         assert_eq!(h.lines().count(), 2);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn an_unfiltered_search_says_nothing_beyond_its_scope() {
+        // The default state used to be six "off"/"any" readings. Its whole value
+        // is being quiet until something is actually narrowing the search.
+        let p = scratch("quiet");
+        save(&p, &Opts::default());
+        let h = header(&p, "needle");
+        let state = h.lines().nth(1).unwrap();
+        assert!(state.contains("all text"), "{state}");
+        assert!(!state.contains(':'), "nothing is on, so nothing is listed: {state}");
+    }
+
+    #[test]
+    fn turning_a_filter_off_again_removes_it_from_the_header() {
+        let p = scratch("header-toggle");
+        save(&p, &Opts::default());
+        toggle(&p, "tools", "");
+        assert!(header(&p, "needle").contains("+tools"));
+        toggle(&p, "tools", "");
+        assert!(!header(&p, "needle").contains("+tools"));
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn the_header_distinguishes_a_default_from_its_opposite() {
+        // thinking is on by default, so only its absence is worth a word.
+        let p = scratch("header-default");
+        save(&p, &Opts { thinking: false, no_sub: true, ..Default::default() });
+        let h = header(&p, "needle");
+        assert!(h.contains("-thinking") && h.contains("-subagents"), "{h}");
         let _ = std::fs::remove_file(&p);
     }
 

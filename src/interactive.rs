@@ -93,7 +93,13 @@ fn fzf_args(exe: &str, state: &Path, opts: &Opts) -> Vec<String> {
         format!("--query={}", opts.pattern),
         format!("--header={}", picker::header(state, &opts.pattern)),
         format!("--preview={e} show {{1}} --color --no-pager --highlight {{q}} --at {{q}}"),
-        "--preview-window=right:55%:wrap".into(),
+        // A transcript is mostly code and JSON, which wraps badly in a narrow
+        // column; the bottom split trades visible rows for full-width lines.
+        if opts.preview == "bottom" {
+            "--preview-window=bottom:50%:wrap".into()
+        } else {
+            "--preview-window=right:55%:wrap".into()
+        },
         format!("--bind=change:reload({rows})+transform-header({header})"),
         format!("--bind=alt-t:{}", key("tools", "")),
         format!("--bind=alt-h:{}", key("thinking", "")),
@@ -155,6 +161,19 @@ mod tests {
         assert!(p.contains("--highlight {q}"), "{p}");
         assert!(p.contains("--color"), "a piped preview still needs ANSI: {p}");
         assert!(!p.contains("head -"), "the old preview could not show late matches: {p}");
+    }
+
+    #[test]
+    fn the_preview_can_be_moved_to_the_bottom() {
+        let side = arg_starting("--preview-window=");
+        assert_eq!(side, "--preview-window=right:55%:wrap");
+
+        let below = fzf_args(
+            "/usr/local/bin/cs",
+            Path::new("/tmp/cs-state.json"),
+            &Opts { preview: "bottom".into(), ..Default::default() },
+        );
+        assert!(below.iter().any(|a| a == "--preview-window=bottom:50%:wrap"), "{below:?}");
     }
 
     #[test]
