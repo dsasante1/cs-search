@@ -96,6 +96,37 @@ fn might_match(raw: &[u8], pre: Option<&BytesRegex>) -> bool {
     false
 }
 
+/// Compile the search pattern.
+///
+/// `cs 'useState('` used to die with a regex parse error, which is a poor answer
+/// when the user plainly meant those characters literally. An unparseable pattern
+/// is therefore retried as a literal and the substitution is reported, while `-F`
+/// asks for that up front. Returns the regex and a note to show the user, if any.
+pub fn compile(opts: &Opts) -> Result<(Regex, Option<String>), String> {
+    if opts.fixed {
+        return Ok((literal(&opts.pattern)?, None));
+    }
+    match Regex::new(&format!("(?i){}", opts.pattern)) {
+        Ok(re) => Ok((re, None)),
+        Err(e) => {
+            let reason = e.to_string();
+            let reason = reason.lines().last().unwrap_or("invalid").trim().to_owned();
+            Ok((
+                literal(&opts.pattern)?,
+                Some(format!(
+                    "'{}' is not a valid regex ({reason}) — searching for it literally; -F says so up front",
+                    opts.pattern
+                )),
+            ))
+        }
+    }
+}
+
+fn literal(pattern: &str) -> Result<Regex, String> {
+    Regex::new(&format!("(?i){}", regex::escape(pattern)))
+        .map_err(|e| format!("bad pattern: {e}"))
+}
+
 pub struct Hits {
     pub rows: Vec<Row>,
     pub files: Vec<PathBuf>,
@@ -205,23 +236,43 @@ fn emit(v: &Value, ctx: &Ctx, rows: &mut Vec<Row>) {
     let ts = crate::record::take_chars(r.timestamp(), 16).replacen('T', " ", 1);
     let project = r.cwd().rsplit('/').next().unwrap_or("?");
     let project = if project.is_empty() { "?" } else { project };
-    let role = crate::record::take_chars(r.kind(), 4).to_owned();
+    // Truncating "assistant" to four characters produced "assi", which reads as
+    // a typo; both speakers get a deliberate four-character label instead.
+    let role = if r.kind() == "user" { "user" } else { "asst" };
     let sid = crate::record::take_chars(r.session_id(), 8).to_owned();
 
     for block in r.blocks(ctx.blocks) {
-        for line in block.split('\n') {
+        let lines: Vec<&str> = block.split('\n').collect();
+        for (i, line) in lines.iter().enumerate() {
             if !ctx.re.is_match(line) {
                 continue;
             }
             rows.push(Row {
                 ts: ts.clone(),
                 project: project.to_owned(),
-                role: role.clone(),
+                role: role.to_owned(),
                 sid: sid.clone(),
                 text: clip(&squash(line), o.chars),
+                before: neighbours(&lines[i.saturating_sub(o.before)..i], o.chars),
+                after: neighbours(
+                    lines
+                        .get(i + 1..(i + 1 + o.after).min(lines.len()))
+                        .unwrap_or(&[]),
+                    o.chars,
+                ),
             });
         }
     }
+}
+
+/// Context lines, cleaned up the same way the matching line is. Blank lines are
+/// dropped rather than printed as empty rows.
+fn neighbours(lines: &[&str], chars: usize) -> Vec<String> {
+    lines
+        .iter()
+        .map(|l| clip(&squash(l), chars))
+        .filter(|l| !l.trim().is_empty())
+        .collect()
 }
 
 #[cfg(test)]
@@ -341,6 +392,41 @@ mod tests {
                 );
             }
         }
+    }
+
+    fn with_pattern(pattern: &str, fixed: bool) -> Opts {
+        Opts { pattern: pattern.into(), fixed, ..Default::default() }
+    }
+
+    #[test]
+    fn a_valid_regex_compiles_untouched_and_silently() {
+        let (re, note) = compile(&with_pattern("ALTER +TABLE", false)).unwrap();
+        assert!(note.is_none(), "a good pattern needs no explanation");
+        assert!(re.is_match("alter  table"), "still a regex, and still case-insensitive");
+    }
+
+    #[test]
+    fn an_unparseable_pattern_falls_back_to_a_literal_search() {
+        // This used to be a hard error, which is the wrong answer for a pattern
+        // the user obviously meant literally.
+        let (re, note) = compile(&with_pattern("useState(", false)).unwrap();
+        assert!(re.is_match("const [a, b] = useState(0)"));
+        let note = note.expect("the substitution has to be reported");
+        assert!(note.contains("literally"), "{note}");
+        assert!(note.contains("-F"), "the note should name the explicit flag: {note}");
+    }
+
+    #[test]
+    fn fixed_treats_metacharacters_as_themselves() {
+        // The trap this closes: as a regex, 'C++' matches any line containing a
+        // 'c', which silently returned tens of thousands of rows.
+        let (loose, _) = compile(&with_pattern("C++", false)).unwrap();
+        assert!(loose.is_match("a concrete recommendation"), "the old behaviour");
+
+        let (exact, note) = compile(&with_pattern("C++", true)).unwrap();
+        assert!(note.is_none(), "-F is explicit, so there is nothing to report");
+        assert!(exact.is_match("written in C++ mostly"));
+        assert!(!exact.is_match("a concrete recommendation"));
     }
 
     #[test]
