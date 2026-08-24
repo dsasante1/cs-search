@@ -885,6 +885,26 @@ fn thread_finds_everything_the_ordinary_scan_finds() {
     assert_eq!(matches, plain, "--thread must not drop matches: {}", threaded.stdout);
 }
 
+// --------------------------------------------------------------- session titles
+
+#[test]
+fn a_session_is_labelled_by_its_title_when_it_has_one() {
+    let c = Corpus::new();
+    let r = c.run(&["sessions"]);
+    assert!(r.stdout.contains("Widget padding fix"), "{}", r.stdout);
+    assert!(!r.stdout.contains("An early guess"), "the last title wins: {}", r.stdout);
+    assert!(!r.stdout.contains("widget alignment is off"),
+            "a titled session should not fall back to its prompt: {}", r.stdout);
+}
+
+#[test]
+fn the_sessions_filter_matches_titles_too() {
+    let c = Corpus::new();
+    let r = c.run(&["sessions", "padding"]);
+    assert_eq!(r.count(), 1, "{}", r.stdout);
+    assert!(r.stdout.contains("Widget padding fix"), "{}", r.stdout);
+}
+
 // ------------------------------------------------------------------------ cli
 
 // --------------------------------------------------------------- cs projects

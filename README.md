@@ -11,7 +11,7 @@ cs -s last-week --thread 'flaky' # last week's matches, each with the turns arou
 cs -b ui-overhaul 'divider'      # only what happened on that git branch
 cs show 3f2a1b9c                 # one session as a readable transcript
 cs show 3f2a1b9c -r user         # only the half of it you typed
-cs sessions dashqard             # sessions newest-first, with their opening prompt
+cs sessions dashqard             # sessions newest-first, by title
 cs projects                      # what -P can be given
 cs resume 3f2a1b9c               # reopen that session in Claude Code
 ```
@@ -259,7 +259,7 @@ avoids the work.
 cargo test
 ```
 
-240 tests, needing no network and no fixtures beyond what the suite creates and
+247 tests, needing no network and no fixtures beyond what the suite creates and
 cleans up itself:
 
 - **Unit tests** sit inline in each module and cover the pure helpers —
@@ -268,8 +268,9 @@ cleans up itself:
   middle-elision, session grouping, the picker's state transitions, the fzf
   command line the picker is launched with, the transcript divider's geometry in
   both colour and plain form, which filters an empty result probes, which
-  prompts a date cutoff keeps, date specs resolved against a fixed "today", and
-  the count-gutter alignment that survives having escape sequences in the line.
+  prompts a date cutoff keeps, date specs resolved against a fixed "today",
+  which title in a file wins, and the count-gutter alignment that survives
+  having escape sequences in the line.
 - **Integration tests** (`tests/cli.rs`) build a synthetic corpus in a temp
   directory, point the binary at it with `CLAUDE_HOME`, and assert on real
   output. The fixture is hand-written, so the suite carries no personal data.

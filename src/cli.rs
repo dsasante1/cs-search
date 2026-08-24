@@ -16,7 +16,7 @@ USAGE
   cs -i [opts] <pattern>    interactive picker (fzf); typing re-searches live
   cs show <session-id>      print one session as a readable transcript
                             -r user|assistant reads one side of it only
-  cs sessions [substr]      list sessions newest-first, with their first prompt
+  cs sessions [substr]      list sessions newest-first, by title
   cs projects [substr]      list projects with session counts
   cs resume <session-id>    reopen that session in Claude Code
 
