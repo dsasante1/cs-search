@@ -7,7 +7,7 @@ cs 'stripe webhook'              # opens the picker on a terminal; prints rows w
 cs -F 'useState('                # match the pattern literally, not as a regex
 cs -p 'rate limit'               # only your own prompts (history.jsonl)
 cs -C 2 'ALTER TABLE'            # with two lines of surrounding context
-cs -s last-week 'flaky test'     # a date you do not have to look up
+cs -s last-week --thread 'flaky' # last week's matches, each with the turns around it
 cs -b ui-overhaul 'divider'      # only what happened on that git branch
 cs show 3f2a1b9c                 # one session as a readable transcript
 cs show 3f2a1b9c -r user         # only the half of it you typed
@@ -40,6 +40,7 @@ are keys rather than flags you have to quit and retype:
 | `alt-enter` | resume the session in Claude Code |
 | `alt-t` / `alt-h` / `alt-s` | tool blocks · thinking blocks · subagent messages |
 | `alt-r` | cycle role: any → user → assistant |
+| `alt-x` | thread context: the turns either side of the match |
 | `alt-p` | filter to the project under the cursor, or clear it |
 | `alt-c` | clear every filter |
 
@@ -147,6 +148,24 @@ plain `YYYY-MM-DD` are all accepted; months step by calendar, so `1m` from the
 middle of it. A spec that names no real day is rejected at parse time rather
 than quietly matching nothing — `-u 2026-02-30` is an error, not an empty result.
 
+### Context that crosses records
+
+`-C/-A/-B` widen a match within the message it sits in, which for prose is
+usually more of the same paragraph. `--thread` instead shows the turns either
+side of it — the prompt that produced the reply, the reply the prompt drew:
+
+```
+2026-08-24 14:19 cs  asst d943d496  export is that renderer minus the pager
+                                    ↑ you   can we get a session out as markdown?
+                                    ↓ you   create a branch and implement it
+```
+
+Those are different records, reachable only through `parentUuid`, so this reads
+the chain rather than the block: every conversation record is decoded, prefilter
+or not, because which turns are neighbours is not knowable until the chain is
+built. On a 302 MB corpus that is 0.51s against 0.21s, which is why it is a flag
+and not the default. `alt-x` toggles it inside the picker.
+
 ## Install
 
 ```sh
@@ -240,7 +259,7 @@ avoids the work.
 cargo test
 ```
 
-236 tests, needing no network and no fixtures beyond what the suite creates and
+240 tests, needing no network and no fixtures beyond what the suite creates and
 cleans up itself:
 
 - **Unit tests** sit inline in each module and cover the pure helpers —

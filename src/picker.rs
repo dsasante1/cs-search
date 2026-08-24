@@ -28,6 +28,7 @@ pub fn save(path: &Path, o: &Opts) {
         "since": o.since,
         "until": o.until,
         "branch": o.branch,
+        "thread": o.thread,
         "tools": o.tools,
         "thinking": o.thinking,
         "no_sub": o.no_sub,
@@ -60,6 +61,7 @@ pub fn load(path: &Path) -> Opts {
         since: s("since", d.since),
         until: s("until", d.until),
         branch: s("branch", d.branch),
+        thread: b("thread", d.thread),
         tools: b("tools", d.tools),
         thinking: b("thinking", d.thinking),
         no_sub: b("no_sub", d.no_sub),
@@ -80,6 +82,7 @@ pub fn toggle(path: &Path, field: &str, value: &str) {
         "thinking" => o.thinking = !o.thinking,
         "sub" => o.no_sub = !o.no_sub,
         "fixed" => o.fixed = !o.fixed,
+        "thread" => o.thread = !o.thread,
         // Pressing it again on the same project clears the filter, so one key
         // both narrows and widens.
         "project" => {
@@ -124,6 +127,9 @@ pub fn header(path: &Path, query: &str) -> String {
     if o.fixed {
         active.push("literal".into());
     }
+    if o.thread {
+        active.push("thread".into());
+    }
     for (name, value) in [
         ("role", &o.role),
         ("project", &o.project),
@@ -138,7 +144,7 @@ pub fn header(path: &Path, query: &str) -> String {
 
     format!(
         "{DIM}enter open · alt-enter resume · alt-t tools · alt-h thinking · \
-         alt-s subagents · alt-r role · alt-p this project · alt-c clear filters{RESET}\n\
+         alt-s subagents · alt-r role · alt-x thread · alt-p this project · alt-c clear filters{RESET}\n\
          {CYAN}{scope}{RESET}{}{}",
         if active.is_empty() {
             String::new()

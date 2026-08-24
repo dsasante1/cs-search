@@ -35,6 +35,7 @@ SEARCH
   -n, --no-sub              skip subagent (sidechain) messages
 
 OUTPUT
+      --thread              show the turns either side of the match, not lines
   -C, --context <n>         show n lines either side of each match
   -A, --after <n>           show n lines after each match
   -B, --before <n>          show n lines before each match
@@ -50,13 +51,14 @@ OUTPUT
 
 PICKER KEYS
   enter open · alt-enter resume · alt-t tools · alt-h thinking
-  alt-s subagents · alt-r role · alt-p this project · alt-c clear filters
+  alt-s subagents · alt-r role · alt-x thread · alt-p this project
+  alt-c clear filters
 
 EXAMPLES
   cs 'stripe webhook'
   cs -F 'useState('
   cs -P dashqard -r user 'rate limit'
-  cs -s last-week 'flaky test'
+  cs -s last-week --thread 'flaky test'
   cs -b ui-overhaul -s 7d 'divider'
   cs -C 2 'ALTER TABLE'
 "#;
@@ -89,6 +91,9 @@ pub struct Opts {
     pub preview: String,
     pub before: usize,
     pub after: usize,
+    /// `--thread`: surround a match with the turns either side of it rather
+    /// than with more lines of the message it sits in.
+    pub thread: bool,
 }
 
 impl Default for Opts {
@@ -117,6 +122,7 @@ impl Default for Opts {
             preview: "right".into(),
             before: 0,
             after: 0,
+            thread: false,
         }
     }
 }
@@ -210,6 +216,7 @@ pub fn parse(args: &[OsString]) -> Result<Parsed, String> {
             Long("group") => o.grouping = Grouping::Always,
             Long("no-group") => o.grouping = Grouping::Never,
             Long("json") => o.json = true,
+            Long("thread") => o.thread = true,
             Long("preview") => o.preview = value(&mut p, "--preview")?,
             Short('h') | Long("help") => return Ok(Parsed::Help),
             Value(v) => {

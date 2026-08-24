@@ -105,6 +105,7 @@ fn fzf_args(exe: &str, state: &Path, opts: &Opts) -> Vec<String> {
         format!("--bind=alt-h:{}", key("thinking", "")),
         format!("--bind=alt-s:{}", key("sub", "")),
         format!("--bind=alt-r:{}", key("role", "")),
+        format!("--bind=alt-x:{}", key("thread", "")),
         // {2} is the hidden project column of the highlighted row.
         format!("--bind=alt-p:{}", key("project", "{2}")),
         format!("--bind=alt-c:{}", key("clear", "")),
@@ -178,7 +179,7 @@ mod tests {
 
     #[test]
     fn every_filter_key_updates_state_results_and_header_together() {
-        for k in ["alt-t", "alt-h", "alt-s", "alt-r", "alt-p", "alt-c"] {
+        for k in ["alt-t", "alt-h", "alt-s", "alt-r", "alt-x", "alt-p", "alt-c"] {
             let b = arg_starting(&format!("--bind={k}:"));
             assert!(b.contains("__toggle"), "{k} should change state: {b}");
             assert!(b.contains("reload("), "{k} should re-run the search: {b}");

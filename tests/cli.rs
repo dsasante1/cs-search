@@ -841,6 +841,50 @@ fn a_bad_date_is_rejected_rather_than_matching_nothing() {
     assert_eq!(c.run(&["-u", "2026-02-30", "needle"]).code, 2, "a date that names no day");
 }
 
+// ------------------------------------------------------------------- --thread
+
+#[test]
+fn thread_context_shows_the_turns_either_side() {
+    let c = Corpus::new();
+    let r = c.run(&["--thread", "padding was the culprit"]);
+    assert!(r.stdout.contains("widget alignment is off"),
+            "the prompt that led to the match belongs above it: {}", r.stdout);
+    assert!(r.stdout.contains("\u{2191}"), "and it should be marked as lying above: {}", r.stdout);
+}
+
+#[test]
+fn thread_context_reaches_the_other_speaker() {
+    let c = Corpus::new();
+    let r = c.run(&["--thread", "widget alignment"]);
+    assert!(r.stdout.contains("padding was the culprit"),
+            "a user match should show the reply it drew: {}", r.stdout);
+    assert!(r.stdout.contains("\u{2193}"), "{}", r.stdout);
+}
+
+/// -C widens within one message; --thread crosses records. They answer
+/// different questions, so the flag replaces the line context rather than
+/// adding to it.
+#[test]
+fn thread_replaces_line_context_rather_than_stacking_with_it() {
+    let c = Corpus::new();
+    let r = c.run(&["--thread", "-C", "2", "second needle line"]);
+    assert!(!r.stdout.contains("multi line"),
+            "the neighbouring line should give way to the neighbouring turn: {}", r.stdout);
+}
+
+#[test]
+fn thread_finds_everything_the_ordinary_scan_finds() {
+    let c = Corpus::new();
+    let plain = c.run(&["--no-group", "needle"]).count();
+    let threaded = c.run(&["--no-group", "--thread", "needle"]);
+    let matches = threaded
+        .lines()
+        .iter()
+        .filter(|l| !l.trim_start().starts_with(['\u{2191}', '\u{2193}']))
+        .count();
+    assert_eq!(matches, plain, "--thread must not drop matches: {}", threaded.stdout);
+}
+
 // ------------------------------------------------------------------------ cli
 
 // --------------------------------------------------------------- cs projects

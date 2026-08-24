@@ -49,6 +49,14 @@ impl<'a> Record<'a> {
     pub fn git_branch(&self) -> &'a str {
         self.str_field("gitBranch")
     }
+    pub fn uuid(&self) -> &'a str {
+        self.str_field("uuid")
+    }
+    /// The record this one replied to, which is what makes a transcript a chain
+    /// rather than a list.
+    pub fn parent_uuid(&self) -> &'a str {
+        self.str_field("parentUuid")
+    }
     pub fn is_meta(&self) -> bool {
         self.bool_field("isMeta")
     }
