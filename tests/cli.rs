@@ -564,6 +564,42 @@ fn results_are_ordered_by_timestamp() {
     assert_eq!(r.lines(), sorted, "rows should already be in sorted order");
 }
 
+/// A flag nobody recognises is a typo, and a typo that exits 0 is a wrong
+/// answer delivered confidently: `cs export <id> --fromat md` wrote markdown
+/// and said nothing. Every command agrees on this now, not just most of them.
+#[test]
+fn an_unknown_flag_is_refused_by_every_command() {
+    let c = Corpus::new();
+    for args in [
+        vec!["show", "cccccccc", "--nonsense"],
+        vec!["show", "cccccccc", "--colour"],
+        vec!["export", "cccccccc", "--fromat", "md"],
+        vec!["export", "cccccccc", "--json"],
+    ] {
+        let r = c.run(&args);
+        assert_eq!(r.code, 2, "{args:?} should be a usage error: {}", r.stdout);
+        assert!(r.stderr.contains("unknown option"), "{args:?}: {}", r.stderr);
+    }
+}
+
+/// A flag written before the id was taken *as* the id, so the error named the
+/// flag as a missing session rather than saying what was actually wrong.
+#[test]
+fn a_flag_before_the_id_is_not_mistaken_for_one() {
+    let c = Corpus::new();
+    for args in [vec!["show", "-P", "gamma", "cccccccc"], vec!["export", "-P", "gamma", "cccccccc"]]
+    {
+        let r = c.run(&args);
+        assert_eq!(r.code, 2, "{args:?}: {}", r.stdout);
+        assert!(
+            !r.stderr.contains("no session matching '-P'"),
+            "{args:?} should not read the flag as an id: {}",
+            r.stderr
+        );
+        assert!(r.stderr.contains("takes one session"), "{args:?}: {}", r.stderr);
+    }
+}
+
 #[test]
 fn jobs_flag_does_not_change_results() {
     let c = Corpus::new();
@@ -1989,6 +2025,12 @@ fn the_one_session_commands_refuse_corpus_filters() {
         vec!["handoff", "cccccccc", "-P", "gamma"],
         vec!["handoff", "cccccccc", "-s", "7d"],
         vec!["related", "cccccccc", "-b", "main"],
+        // `show` and `export` parse their own flags and used to end in a
+        // catch-all that dropped whatever it did not recognise.
+        vec!["show", "cccccccc", "-P", "gamma"],
+        vec!["show", "cccccccc", "-s", "7d"],
+        vec!["export", "cccccccc", "-b", "main"],
+        vec!["export", "cccccccc", "-u", "yesterday"],
     ] {
         let r = c.run(&args);
         assert_eq!(r.code, 2, "{args:?}: {}", r.stdout);

@@ -328,8 +328,15 @@ fn export_command(args: &[OsString]) -> i32 {
                     return 2;
                 }
             }
-            value if id.is_empty() => id = value.to_owned(),
-            _ => {}
+            value if id.is_empty() && !value.starts_with('-') => id = value.to_owned(),
+            f @ ("-P" | "--project" | "-b" | "--branch" | "-s" | "--since" | "-u" | "--until") => {
+                eprintln!("{}", rejected(f));
+                return 2;
+            }
+            other => {
+                eprintln!("unknown option: {other}");
+                return 2;
+            }
         }
     }
     export::run(&id, &role, format)
@@ -405,12 +412,20 @@ fn parse_corpus(args: &[OsString], allow: Allow) -> Result<CorpusArgs, String> {
                 c.opts.session = value.to_owned()
             }
             f @ ("-P" | "--project" | "-b" | "--branch" | "-s" | "--since" | "-u" | "--until") => {
-                return Err(format!("{f} filters the corpus; this command takes one session"))
+                return Err(rejected(f))
             }
             other => return Err(format!("unknown option: {other}")),
         }
     }
     Ok(c)
+}
+
+/// Why a corpus filter is refused by a command that was handed one session.
+/// Shared so `show` and `export` say the same thing as `handoff` and `related`
+/// rather than each inventing its own wording — or, as they used to, silently
+/// accepting the flag and doing nothing with it.
+fn rejected(flag: &str) -> String {
+    format!("{flag} filters the corpus; this command takes one session")
 }
 
 /// Load the price table, if one was named.
@@ -678,8 +693,15 @@ fn show_command(args: &[OsString]) -> i32 {
             }
             "--color" => o.color = true,
             "--no-pager" => o.pager = false,
-            value if id.is_empty() => id = value.to_owned(),
-            _ => {}
+            value if id.is_empty() && !value.starts_with('-') => id = value.to_owned(),
+            f @ ("-P" | "--project" | "-b" | "--branch" | "-s" | "--since" | "-u" | "--until") => {
+                eprintln!("{}", rejected(f));
+                return 2;
+            }
+            other => {
+                eprintln!("unknown option: {other}");
+                return 2;
+            }
         }
     }
     show::run_with(&id, &o)
