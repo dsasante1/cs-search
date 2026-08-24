@@ -1,6 +1,7 @@
 //! cs — search Claude Code conversation history across every session and project.
 
 mod cli;
+mod completions;
 mod dates;
 mod export;
 mod files;
@@ -60,6 +61,19 @@ fn main() {
         "__header" => {
             println!("{}", picker::header(Path::new(sub(1)), sub(2)));
             exit(0);
+        }
+        "completions" => {
+            let stdout = std::io::stdout();
+            let mut w = BufWriter::new(stdout.lock());
+            let code = match completions::write(&mut w, sub(1)) {
+                Ok(()) => 0,
+                Err(e) => {
+                    eprintln!("{e}");
+                    2
+                }
+            };
+            let _ = w.flush();
+            exit(code);
         }
         "-h" | "--help" => {
             print!("{USAGE}");

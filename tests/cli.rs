@@ -1070,6 +1070,28 @@ fn export_rejects_what_it_cannot_write() {
     assert_eq!(c.run(&["export"]).code, 2, "no id at all");
 }
 
+// ------------------------------------------------------------- cs completions
+
+#[test]
+fn completions_are_produced_for_each_supported_shell() {
+    let c = Corpus::new();
+    for shell in ["bash", "zsh", "fish"] {
+        let r = c.run(&["completions", shell]);
+        assert_eq!(r.code, 0, "{shell}: {}", r.stderr);
+        assert!(r.stdout.contains("cs sessions"), "{shell} should complete ids: {}", r.stdout);
+        assert!(r.stdout.contains("export"), "{shell}: {}", r.stdout);
+    }
+}
+
+#[test]
+fn an_unsupported_shell_is_an_error_with_an_empty_stdout() {
+    let c = Corpus::new();
+    let r = c.run(&["completions", "tcsh"]);
+    assert_eq!(r.code, 2);
+    assert!(r.stdout.is_empty(), "{}", r.stdout);
+    assert!(r.stderr.contains("tcsh"), "stderr: {}", r.stderr);
+}
+
 // ------------------------------------------------------------------------ cli
 
 // --------------------------------------------------------------- cs projects

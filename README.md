@@ -220,6 +220,17 @@ and escaped, which matters because a transcript is full of markup. Both read the
 file through one function, so they can never disagree about what a session
 contains.
 
+### `cs completions`
+
+```sh
+eval "$(cs completions bash)"    # or zsh; fish wants `cs completions fish | source`
+```
+
+Session ids are eight hex characters, so `cs show` was really `cs sessions |
+grep` followed by a copy and a paste. Ids and project names are completed by
+shelling out to `cs` itself rather than from a cache — the corpus changes every
+time you use Claude Code, and `sessions` answers in 0.05s.
+
 ## Install
 
 ```sh
@@ -313,7 +324,7 @@ avoids the work.
 cargo test
 ```
 
-284 tests, needing no network and no fixtures beyond what the suite creates and
+293 tests, needing no network and no fixtures beyond what the suite creates and
 cleans up itself:
 
 - **Unit tests** sit inline in each module and cover the pure helpers —
@@ -362,6 +373,7 @@ makes the suite fail.
 | `src/sessions.rs` | `cs sessions` |
 | `src/projects.rs` | `cs projects` |
 | `src/show.rs` | `cs show`: speaker dividers, role filter, jump-to-match, pager |
+| `src/completions.rs` | `cs completions`: bash, zsh and fish scripts |
 | `src/export.rs` | `cs export`: markdown, self-contained HTML, JSONL |
 | `src/files.rs` | `cs files`: paths that were acted on, folded per file |
 | `src/stats.rs` | `cs stats`: models, tokens, cache, optional priced cost |
