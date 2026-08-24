@@ -13,13 +13,14 @@ mod resume;
 mod scan;
 mod sessions;
 mod show;
+mod stats;
 
 use cli::{Opts, Parsed, USAGE};
 use output::Row;
 use regex::Regex;
 use std::ffi::OsString;
 use std::io::{BufWriter, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::exit;
 
 fn main() {
@@ -45,6 +46,7 @@ fn main() {
         }
         "projects" => exit(projects::run(sub(1), Opts::default().jobs)),
         "files" => exit(files_command(&args)),
+        "stats" => exit(stats_command(&args)),
         "resume" => exit(resume::run(sub(1))),
         // Internal, and spelled so: these exist for the picker's key bindings to
         // call back into, and are not part of the CLI.
@@ -277,6 +279,69 @@ fn widenings(opts: &Opts, re: &Regex) -> Vec<(usize, String)> {
             (found > 0).then_some((found, flag))
         })
         .collect()
+}
+
+/// `cs stats [-P proj] [-b branch] [-s date] [-u date] [--prices f] [--json]`.
+///
+/// Hand-parsed because it is the one search-shaped command with no pattern:
+/// `cli::parse` treats a missing one as a usage error, which is right
+/// everywhere else.
+fn stats_command(args: &[OsString]) -> i32 {
+    let mut o = Opts::default();
+    let mut json = false;
+    let mut prices_at: Option<PathBuf> = None;
+    let mut rest = args.iter().skip(1);
+
+    while let Some(arg) = rest.next() {
+        let mut take = || rest.next().and_then(|v| v.to_str()).unwrap_or("").to_owned();
+        match arg.to_str().unwrap_or("") {
+            "-P" | "--project" => o.project = take().to_lowercase(),
+            "-b" | "--branch" => o.branch = take().to_lowercase(),
+            "-j" | "--jobs" => o.jobs = take().parse().unwrap_or(o.jobs).max(1),
+            "--json" => json = true,
+            "--prices" => prices_at = Some(PathBuf::from(take())),
+            "-s" | "--since" | "-u" | "--until" => {
+                let flag = arg.to_str().unwrap_or("");
+                let spec = take();
+                match dates::resolve(&spec) {
+                    Ok(d) if flag.starts_with("-s") || flag == "--since" => o.since = d,
+                    Ok(d) => o.until = d,
+                    Err(e) => {
+                        eprintln!("{flag}: {e}");
+                        return 2;
+                    }
+                }
+            }
+            other => {
+                eprintln!("unknown option: {other}");
+                return 2;
+            }
+        }
+    }
+
+    let prices = match prices_at.as_deref().map(stats::load_prices) {
+        Some(Ok(p)) => Some(p),
+        Some(Err(e)) => {
+            eprintln!("{e}");
+            return 2;
+        }
+        None => None,
+    };
+
+    let s = stats::collect(&o);
+    if s.messages() == 0 {
+        eprintln!("no messages matched");
+        return 1;
+    }
+    let stdout = std::io::stdout();
+    let mut w = BufWriter::new(stdout.lock());
+    if json {
+        stats::report_json(&mut w, &s, prices.as_ref());
+    } else {
+        stats::report(&mut w, &s, prices.as_ref());
+    }
+    let _ = w.flush();
+    0
 }
 
 /// `cs files <pattern>` — the search flags, applied to paths that were worked

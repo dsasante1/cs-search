@@ -963,6 +963,62 @@ fn files_reports_no_match_rather_than_printing_nothing() {
     assert!(r.stderr.contains("no files"), "stderr: {}", r.stderr);
 }
 
+// ------------------------------------------------------------------- cs stats
+
+#[test]
+fn stats_counts_sessions_messages_and_projects() {
+    let c = Corpus::new();
+    let r = c.run(&["stats"]);
+    assert_eq!(r.code, 0, "stderr: {}", r.stderr);
+    assert!(r.stdout.contains("3 sessions"), "{}", r.stdout);
+    assert!(r.stdout.contains("3 projects"), "{}", r.stdout);
+}
+
+#[test]
+fn stats_reads_the_model_and_its_token_usage() {
+    let c = Corpus::new();
+    let r = c.run(&["stats", "--json"]);
+    let v: Value = serde_json::from_str(r.stdout.trim()).unwrap();
+    assert_eq!(v["tokens"]["input"], 100);
+    assert_eq!(v["tokens"]["output"], 40);
+    assert_eq!(v["tokens"]["cache_read"], 860);
+    // 860 of the 960 tokens fed in came back from cache.
+    let rate = v["tokens"]["cache_hit_rate"].as_f64().unwrap();
+    assert!((rate - 860.0 / 960.0).abs() < 1e-9, "{rate}");
+    let models = v["models"].as_array().unwrap();
+    assert!(models.iter().any(|m| m["model"] == "claude-opus-5"), "{models:?}");
+}
+
+#[test]
+fn stats_narrows_the_same_way_a_search_does() {
+    let c = Corpus::new();
+    let r = c.run(&["stats", "-P", "gamma", "--json"]);
+    let v: Value = serde_json::from_str(r.stdout.trim()).unwrap();
+    assert_eq!(v["sessions"], 1);
+    assert_eq!(c.run(&["stats", "-b", "nothing-here"]).code, 1);
+    assert_eq!(c.run(&["stats", "-s", "not-a-date"]).code, 2);
+}
+
+/// Cost appears only when the user supplies prices, and a model missing from
+/// the table is named rather than counted as free.
+#[test]
+fn stats_prices_only_what_the_table_prices() {
+    let c = Corpus::new();
+    let table = c.root.join("prices.json");
+    std::fs::write(&table, r#"{"claude-opus-5": {"input": 10.0, "output": 100.0}}"#).unwrap();
+
+    assert!(!c.run(&["stats"]).stdout.contains("COST"), "no table, no cost");
+
+    let r = c.run(&["stats", "--prices", table.to_str().unwrap()]);
+    assert!(r.stdout.contains("COST"), "{}", r.stdout);
+    // Records predating the model field are counted under "unknown", which the
+    // table does not price — so it is named rather than billed at zero.
+    assert!(r.stdout.contains("not in the price table: unknown"), "{}", r.stdout);
+
+    let missing = c.run(&["stats", "--prices", "/no/such/table.json"]);
+    assert_eq!(missing.code, 2);
+}
+
 // ------------------------------------------------------------------------ cli
 
 // --------------------------------------------------------------- cs projects

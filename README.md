@@ -13,6 +13,7 @@ cs show 3f2a1b9c                 # one session as a readable transcript
 cs show 3f2a1b9c -r user         # only the half of it you typed
 cs sessions dashqard             # sessions newest-first, by title
 cs files 'settings/base.py'      # which sessions touched a file, and when
+cs stats -P dashqard             # models, tokens and cache use
 cs projects                      # what -P can be given
 cs resume 3f2a1b9c               # reopen that session in Claude Code
 ```
@@ -185,6 +186,29 @@ session" answerable. Paths are read by key (`file_path`, `notebook_path`) rather
 than by tool name, so a tool added later is seen without a change here. It takes
 the same `-P`, `-b`, `-s`, `-u` and `-F` a search does.
 
+### `cs stats` — what the corpus is made of
+
+Every assistant record carries a model and a usage block, and nothing here had
+ever read them:
+
+```
+181 sessions · 78,379 messages · 45 projects
+2026-07-10 → 2026-08-24
+
+MODEL           replies    input   output    cached
+claude-opus-5    46,608     288K    40.9M      9.5B
+
+TOKENS
+  input            389K
+  cache read      10.1B
+  from cache      97.3%
+```
+
+Cost is not built in. Prices change, a hardcoded table would go stale silently,
+and a number that is quietly wrong is worse than no number — so `--prices
+<file>` takes a table of dollars per million tokens from you, and a model
+missing from it is named rather than billed at zero.
+
 ## Install
 
 ```sh
@@ -278,7 +302,7 @@ avoids the work.
 cargo test
 ```
 
-261 tests, needing no network and no fixtures beyond what the suite creates and
+273 tests, needing no network and no fixtures beyond what the suite creates and
 cleans up itself:
 
 - **Unit tests** sit inline in each module and cover the pure helpers —
@@ -288,8 +312,9 @@ cleans up itself:
   command line the picker is launched with, the transcript divider's geometry in
   both colour and plain form, which filters an empty result probes, which
   prompts a date cutoff keeps, date specs resolved against a fixed "today",
-  which title in a file wins, how touches fold into files, and the count-gutter
-  alignment that survives having escape sequences in the line.
+  which title in a file wins, how touches fold into files, the token arithmetic
+  behind `stats`, and the count-gutter alignment that survives having escape
+  sequences in the line.
 - **Integration tests** (`tests/cli.rs`) build a synthetic corpus in a temp
   directory, point the binary at it with `CLAUDE_HOME`, and assert on real
   output. The fixture is hand-written, so the suite carries no personal data.
@@ -327,6 +352,7 @@ makes the suite fail.
 | `src/projects.rs` | `cs projects` |
 | `src/show.rs` | `cs show`: speaker dividers, role filter, jump-to-match, pager |
 | `src/files.rs` | `cs files`: paths that were acted on, folded per file |
+| `src/stats.rs` | `cs stats`: models, tokens, cache, optional priced cost |
 | `src/resume.rs` | `cs resume` |
 | `src/prompts.rs` | `cs -p` |
 | `src/interactive.rs` | the picker: the fzf command line and what comes back |
