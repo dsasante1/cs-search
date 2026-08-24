@@ -564,6 +564,70 @@ fn results_are_ordered_by_timestamp() {
     assert_eq!(r.lines(), sorted, "rows should already be in sorted order");
 }
 
+/// The printed timestamp stops at the minute, so a question and the answer it
+/// got seconds later look simultaneous. Ordering has to use the whole instant:
+/// sorting on what is printed let the next tie-break field decide, and "asst"
+/// sorts before "user", which put every same-minute answer above its question.
+#[test]
+fn turns_in_the_same_minute_keep_their_real_order() {
+    let c = Corpus::new();
+    c.session(
+        "-home-u-delta",
+        SID_D,
+        &[
+            msg(
+                "user",
+                SID_D,
+                "/home/u/delta",
+                "2026-08-20T14:00:05Z",
+                json!("what breaks the sameminute case?"),
+            ),
+            msg(
+                "assistant",
+                SID_D,
+                "/home/u/delta",
+                "2026-08-20T14:00:09Z",
+                json!("the sameminute answer arrives four seconds later"),
+            ),
+        ],
+    );
+    let r = c.run(&["sameminute"]);
+    let lines = r.lines();
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert!(lines[0].contains("what breaks"), "the question should come first: {lines:?}");
+    assert!(lines[1].contains("answer arrives"), "the answer should come second: {lines:?}");
+}
+
+/// Ordering is not part of the printed interface only: `--chrono` quotes
+/// whichever line sorted first in each session, so it inherits the same bug.
+#[test]
+fn chrono_quotes_the_line_that_actually_came_first() {
+    let c = Corpus::new();
+    c.session(
+        "-home-u-delta",
+        SID_D,
+        &[
+            msg(
+                "user",
+                SID_D,
+                "/home/u/delta",
+                "2026-08-20T14:00:05Z",
+                json!("what breaks the sameminute case?"),
+            ),
+            msg(
+                "assistant",
+                SID_D,
+                "/home/u/delta",
+                "2026-08-20T14:00:09Z",
+                json!("the sameminute answer arrives four seconds later"),
+            ),
+        ],
+    );
+    let r = c.run(&["sameminute", "--chrono"]);
+    let first = r.lines()[0].to_owned();
+    assert!(first.contains("what breaks"), "{first}");
+}
+
 /// A flag nobody recognises is a typo, and a typo that exits 0 is a wrong
 /// answer delivered confidently: `cs export <id> --fromat md` wrote markdown
 /// and said nothing. Every command agrees on this now, not just most of them.

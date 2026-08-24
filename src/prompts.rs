@@ -56,6 +56,7 @@ pub fn run(opts: &Opts, re: &Regex) -> Result<Vec<Row>, String> {
                 let p = project.rsplit('/').next().unwrap_or("?");
                 if p.is_empty() { "?" } else { p }.to_owned()
             },
+            precise: precise(&v),
             role: "you".to_owned(),
             sid: take_chars(sid, 8).to_owned(),
             text: take_chars(&squash(display), opts.chars).to_owned(),
@@ -65,6 +66,13 @@ pub fn run(opts: &Opts, re: &Regex) -> Result<Vec<Row>, String> {
 
     rows.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
     Ok(rows)
+}
+
+/// The prompt's time to the millisecond, for ordering only. `stamp` truncates
+/// to the minute to print, and two prompts in the same minute have to keep the
+/// order they were typed in rather than fall back to comparing their text.
+fn precise(v: &Value) -> String {
+    v.get("timestamp").and_then(Value::as_i64).map(|ms| format!("{ms:020}")).unwrap_or_default()
 }
 
 /// The prompt's time, in the local zone, as the row will print it.

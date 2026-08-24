@@ -261,6 +261,7 @@ fn emit(v: &Value, ctx: &Ctx, rows: &mut Vec<Row>) {
             }
             rows.push(Row {
                 ts: ts.clone(),
+                precise: r.timestamp().to_owned(),
                 project: project.to_owned(),
                 branch: r.git_branch().to_owned(),
                 role: role.to_owned(),

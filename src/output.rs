@@ -106,6 +106,13 @@ pub fn stderr_is_tty() -> bool {
 #[derive(Default)]
 pub struct Row {
     pub ts: String,
+    /// The same instant as `ts` but complete, kept only so rows can be ordered.
+    /// `ts` is truncated to the minute for display, and sorting on it alone let
+    /// the tie-break fields decide: two turns in the same minute came out
+    /// ordered by role, which printed an answer above the question it answered.
+    /// Never rendered, and absent from `--json` — it is not part of the
+    /// interface, only of the order.
+    pub precise: String,
     pub project: String,
     /// The git branch the session was on. Carried on every row, but kept out of
     /// the flat columns: those are the interface scripts parse.
@@ -121,8 +128,8 @@ pub struct Row {
 impl Row {
     /// Context lines are deliberately excluded: two matches differing only in
     /// their surroundings are still the same row for ordering purposes.
-    pub fn sort_key(&self) -> (&str, &str, &str, &str, &str) {
-        (&self.ts, &self.project, &self.role, &self.sid, &self.text)
+    pub fn sort_key(&self) -> (&str, &str, &str, &str, &str, &str) {
+        (&self.ts, &self.precise, &self.project, &self.role, &self.sid, &self.text)
     }
 
     pub fn render(&self, color: bool, hl: Option<&Regex>, width: usize) -> String {
