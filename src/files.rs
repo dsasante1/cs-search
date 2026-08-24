@@ -194,12 +194,7 @@ fn relative<'a>(path: &'a str, cwd: &str) -> &'a str {
 
 pub fn print(w: &mut impl Write, hits: &[FileHits], color: bool) {
     let (d, c, z) = if color { (DIM, CYAN, RESET) } else { ("", "", "") };
-    let width = hits
-        .iter()
-        .map(|h| h.project.chars().count())
-        .max()
-        .unwrap_or(8)
-        .clamp(8, 20);
+    let width = hits.iter().map(|h| h.project.chars().count()).max().unwrap_or(8).clamp(8, 20);
 
     for h in hits {
         let (parent, base) = split(&h.shown);

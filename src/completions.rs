@@ -32,24 +32,42 @@ pub const SUBCOMMANDS: &[&str] = &[
 /// there and forgotten here simply fails to complete, which is why the test
 /// below reads them out of the usage text instead of trusting this list.
 pub const FLAGS: &[&str] = &[
-    "-F", "--fixed",
-    "-P", "--project",
-    "-r", "--role",
-    "-s", "--since",
-    "-u", "--until",
-    "-b", "--branch",
-    "-t", "--tools",
-    "-T", "--no-thinking",
-    "-n", "--no-sub",
-    "-C", "--context",
-    "-A", "--after",
-    "-B", "--before",
-    "-c", "--chars",
-    "-l", "--files",
-    "-p", "--prompts",
-    "-q", "--questions",
-    "-i", "--interactive",
-    "-j", "--jobs",
+    "-F",
+    "--fixed",
+    "-P",
+    "--project",
+    "-r",
+    "--role",
+    "-s",
+    "--since",
+    "-u",
+    "--until",
+    "-b",
+    "--branch",
+    "-t",
+    "--tools",
+    "-T",
+    "--no-thinking",
+    "-n",
+    "--no-sub",
+    "-C",
+    "--context",
+    "-A",
+    "--after",
+    "-B",
+    "--before",
+    "-c",
+    "--chars",
+    "-l",
+    "--files",
+    "-p",
+    "--prompts",
+    "-q",
+    "--questions",
+    "-i",
+    "--interactive",
+    "-j",
+    "--jobs",
     "--thread",
     "--plain",
     "--group",
@@ -57,7 +75,8 @@ pub const FLAGS: &[&str] = &[
     "--chrono",
     "--json",
     "--preview",
-    "-h", "--help",
+    "-h",
+    "--help",
 ];
 
 pub fn write(w: &mut impl Write, shell: &str) -> Result<(), String> {
@@ -179,9 +198,7 @@ fn fish() -> String {
     out.push_str("\nend\n\n");
 
     for (name, help) in SUBCOMMAND_HELP {
-        out.push_str(&format!(
-            "complete -c cs -n __cs_no_sub -a {name} -d '{help}'\n"
-        ));
+        out.push_str(&format!("complete -c cs -n __cs_no_sub -a {name} -d '{help}'\n"));
     }
     out.push_str(
         "\ncomplete -c cs -n '__fish_seen_subcommand_from show resume export handoff related stats' -f -a '(__cs_sessions)'\n\
@@ -309,10 +326,16 @@ mod tests {
         for flag in documented {
             // Subcommand-only flags live on their own commands, not on a search.
             if [
-                "--format", "--prices", "--highlight", "--at", "--color",
-                "--no-pager", "--sessions", "--limit",
+                "--format",
+                "--prices",
+                "--highlight",
+                "--at",
+                "--color",
+                "--no-pager",
+                "--sessions",
+                "--limit",
             ]
-                .contains(&flag)
+            .contains(&flag)
             {
                 continue;
             }

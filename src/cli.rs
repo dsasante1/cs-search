@@ -159,9 +159,7 @@ impl Default for Opts {
             no_sub: false,
             prompts: false,
             interactive: false,
-            jobs: std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(4),
+            jobs: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4),
             pattern: String::new(),
             fixed: false,
             plain: false,
@@ -219,8 +217,7 @@ fn value(p: &mut lexopt::Parser, flag: &str) -> Result<String, String> {
 
 fn count(p: &mut lexopt::Parser, flag: &str) -> Result<usize, String> {
     let v = value(p, flag)?;
-    v.parse()
-        .map_err(|_| format!("bad {flag} value: {v}"))
+    v.parse().map_err(|_| format!("bad {flag} value: {v}"))
 }
 
 pub fn parse(args: &[OsString]) -> Result<Parsed, String> {
@@ -282,9 +279,9 @@ pub fn parse(args: &[OsString]) -> Result<Parsed, String> {
             Long("preview") => o.preview = value(&mut p, "--preview")?,
             Short('h') | Long("help") => return Ok(Parsed::Help),
             Value(v) => {
-                let text = v.into_string().map_err(|v| {
-                    format!("pattern is not valid UTF-8: {}", v.to_string_lossy())
-                })?;
+                let text = v
+                    .into_string()
+                    .map_err(|v| format!("pattern is not valid UTF-8: {}", v.to_string_lossy()))?;
                 if !o.pattern.is_empty() {
                     return Err(format!(
                         "unexpected argument '{text}' after the pattern '{}' — \
@@ -547,9 +544,31 @@ mod tests {
     #[test]
     fn usage_documents_every_flag_the_parser_accepts() {
         for flag in [
-            "-P", "-r", "-t", "-T", "-s", "-c", "-l", "-n", "-j", "-h", "-p", "-i",
-            "-F", "-C", "-A", "-B", "-q", "--plain", "--group", "--no-group",
-            "--chrono", "--json", "--preview", "--sessions", "--limit",
+            "-P",
+            "-r",
+            "-t",
+            "-T",
+            "-s",
+            "-c",
+            "-l",
+            "-n",
+            "-j",
+            "-h",
+            "-p",
+            "-i",
+            "-F",
+            "-C",
+            "-A",
+            "-B",
+            "-q",
+            "--plain",
+            "--group",
+            "--no-group",
+            "--chrono",
+            "--json",
+            "--preview",
+            "--sessions",
+            "--limit",
         ] {
             assert!(USAGE.contains(flag), "usage text is missing {flag}");
         }
@@ -566,10 +585,7 @@ mod tests {
             if !flag.starts_with('-') || flag.len() < 2 {
                 continue;
             }
-            assert!(
-                described.contains(flag),
-                "{flag} is used in an example but never documented"
-            );
+            assert!(described.contains(flag), "{flag} is used in an example but never documented");
         }
     }
 
@@ -613,8 +629,18 @@ mod tests {
     fn every_subcommand_appears_in_an_example() {
         let examples = USAGE.split("EXAMPLES").nth(1).expect("usage has examples");
         for sub in [
-            "show", "sessions", "files", "export", "projects", "stats", "resume",
-            "completions", "history", "activity", "handoff", "related",
+            "show",
+            "sessions",
+            "files",
+            "export",
+            "projects",
+            "stats",
+            "resume",
+            "completions",
+            "history",
+            "activity",
+            "handoff",
+            "related",
         ] {
             assert!(examples.contains(sub), "no example uses {sub}");
         }
@@ -625,20 +651,15 @@ mod tests {
     #[test]
     fn the_usage_fits_a_standard_terminal() {
         for line in USAGE.lines() {
-            assert!(
-                line.chars().count() <= 80,
-                "{} columns: {line}",
-                line.chars().count()
-            );
+            assert!(line.chars().count() <= 80, "{} columns: {line}", line.chars().count());
         }
     }
 
     #[test]
     fn usage_documents_every_subcommand() {
-        for sub in [
-            "show", "sessions", "projects", "resume", "history", "activity",
-            "handoff", "related",
-        ] {
+        for sub in
+            ["show", "sessions", "projects", "resume", "history", "activity", "handoff", "related"]
+        {
             assert!(USAGE.contains(&format!("cs {sub}")), "usage is missing {sub}");
         }
     }

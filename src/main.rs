@@ -254,28 +254,17 @@ fn probe_set(opts: &Opts) -> Vec<(String, Opts)> {
         ));
     }
     if !opts.role.is_empty() {
-        probes.push((
-            format!("-r {}", opts.role),
-            Opts { role: String::new(), ..opts.clone() },
-        ));
+        probes.push((format!("-r {}", opts.role), Opts { role: String::new(), ..opts.clone() }));
     }
     if !opts.since.is_empty() {
-        probes.push((
-            format!("-s {}", opts.since),
-            Opts { since: String::new(), ..opts.clone() },
-        ));
+        probes.push((format!("-s {}", opts.since), Opts { since: String::new(), ..opts.clone() }));
     }
     if !opts.until.is_empty() {
-        probes.push((
-            format!("-u {}", opts.until),
-            Opts { until: String::new(), ..opts.clone() },
-        ));
+        probes.push((format!("-u {}", opts.until), Opts { until: String::new(), ..opts.clone() }));
     }
     if !opts.branch.is_empty() {
-        probes.push((
-            format!("-b {}", opts.branch),
-            Opts { branch: String::new(), ..opts.clone() },
-        ));
+        probes
+            .push((format!("-b {}", opts.branch), Opts { branch: String::new(), ..opts.clone() }));
     }
     if opts.no_sub {
         probes.push(("-n".into(), Opts { no_sub: false, ..opts.clone() }));
@@ -412,13 +401,10 @@ fn parse_corpus(args: &[OsString], allow: Allow) -> Result<CorpusArgs, String> {
                     c.opts.until = day;
                 }
             }
-            value
-                if allow.session && c.opts.session.is_empty() && !value.starts_with('-') =>
-            {
+            value if allow.session && c.opts.session.is_empty() && !value.starts_with('-') => {
                 c.opts.session = value.to_owned()
             }
-            f @ ("-P" | "--project" | "-b" | "--branch" | "-s" | "--since" | "-u"
-                | "--until") => {
+            f @ ("-P" | "--project" | "-b" | "--branch" | "-s" | "--since" | "-u" | "--until") => {
                 return Err(format!("{f} filters the corpus; this command takes one session"))
             }
             other => return Err(format!("unknown option: {other}")),
@@ -456,11 +442,7 @@ fn stats_command(args: &[OsString]) -> i32 {
         let Some(path) = show::pick(&opts.session, "counting") else {
             return 1;
         };
-        opts.session = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or_default()
-            .to_owned();
+        opts.session = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_owned();
     }
 
     let s = stats::collect(&opts);
@@ -609,8 +591,11 @@ fn history_command(args: &[OsString]) -> i32 {
     } else {
         history::report(&mut w, &h, chrono::Local::now().date_naive());
         if list {
-            let _ = writeln!(w, "
-SESSIONS");
+            let _ = writeln!(
+                w,
+                "
+SESSIONS"
+            );
             output::print_chrono(&mut w, &rows, tty, tty.then_some(&re));
         }
     }

@@ -221,10 +221,7 @@ fn ws() -> &'static Regex {
 /// space and drop one leading space.
 pub fn squash(s: &str) -> String {
     let collapsed = ws().replace_all(s, " ");
-    collapsed
-        .strip_prefix(' ')
-        .map(str::to_owned)
-        .unwrap_or_else(|| collapsed.into_owned())
+    collapsed.strip_prefix(' ').map(str::to_owned).unwrap_or_else(|| collapsed.into_owned())
 }
 
 /// jq's `clip`: truncate to n chars, appending an ellipsis if anything was cut.
@@ -275,22 +272,13 @@ pub fn print_flat(w: &mut impl Write, rows: &[Row], color: bool, hl: Option<&Reg
 /// Sessions in the order their first match appears, each with its matches folded
 /// to `PER_GROUP` and a pointer to the command that shows the rest.
 pub fn print_grouped(w: &mut impl Write, rows: &[Row], color: bool, hl: Option<&Regex>) {
-    let (c, d, b, z) = if color {
-        (CYAN, DIM, BOLD, RESET)
-    } else {
-        ("", "", "", "")
-    };
+    let (c, d, b, z) = if color { (CYAN, DIM, BOLD, RESET) } else { ("", "", "", "") };
     let groups = group_by_session(rows);
     // Counts line up in a column of their own, so "which session has the most
     // hits" is a glance down the right-hand edge rather than a read of every
     // heading. The gutter is measured from the plain text: escape sequences
     // occupy no columns, so padding computed with them in would be wrong.
-    let gutter = groups
-        .iter()
-        .map(|g| heading_width(g[0]))
-        .max()
-        .unwrap_or(0)
-        + 2;
+    let gutter = groups.iter().map(|g| heading_width(g[0])).max().unwrap_or(0) + 2;
 
     for (i, g) in groups.iter().enumerate() {
         let head = g[0];
@@ -323,12 +311,7 @@ pub fn print_grouped(w: &mut impl Write, rows: &[Row], color: bool, hl: Option<&
             }
         }
         if g.len() > PER_GROUP {
-            let _ = writeln!(
-                w,
-                "  {d}… {} more · cs show {}{z}",
-                g.len() - PER_GROUP,
-                head.sid
-            );
+            let _ = writeln!(w, "  {d}… {} more · cs show {}{z}", g.len() - PER_GROUP, head.sid);
         }
     }
 }
@@ -350,18 +333,12 @@ pub fn print_chrono(w: &mut impl Write, rows: &[Row], color: bool, hl: Option<&R
     let (c, d, z) = if color { (CYAN, DIM, RESET) } else { ("", "", "") };
     let sessions = per_session(rows);
     let width = project_width(rows);
-    let digits = sessions
-        .iter()
-        .map(|(_, n)| n.to_string().len())
-        .max()
-        .unwrap_or(1);
+    let digits = sessions.iter().map(|(_, n)| n.to_string().len()).max().unwrap_or(1);
 
     // The one renderer whose contract is a line per session, so the line has to
     // fit: a snippet that wraps three times is no longer a timeline. Only on a
     // terminal — a pipe gets the text it would have got anywhere else.
-    let room = color.then(|| {
-        term_width().saturating_sub(width + 33 + digits).max(24)
-    });
+    let room = color.then(|| term_width().saturating_sub(width + 33 + digits).max(24));
 
     for (head, n) in &sessions {
         let text = match room {
@@ -385,10 +362,7 @@ pub fn print_chrono(w: &mut impl Write, rows: &[Row], color: bool, hl: Option<&R
 /// Shared by `--chrono` and by `cs history --sessions`, so the two can never
 /// disagree about which line stands for a session or how many it stood for.
 pub fn per_session(rows: &[Row]) -> Vec<(&Row, usize)> {
-    group_by_session(rows)
-        .into_iter()
-        .map(|g| (g[0], g.len()))
-        .collect()
+    group_by_session(rows).into_iter().map(|g| (g[0], g.len())).collect()
 }
 
 /// One JSON object per line: a whole-array encoding would have to be buffered
@@ -637,11 +611,8 @@ mod tests {
 
     #[test]
     fn group_headings_lead_with_a_marker_and_align_their_counts() {
-        let mk = |sid: &str, project: &str| Row {
-            sid: sid.into(),
-            project: project.into(),
-            ..row()
-        };
+        let mk =
+            |sid: &str, project: &str| Row { sid: sid.into(), project: project.into(), ..row() };
         // Deliberately mismatched name lengths: alignment is the whole point.
         let rows = [mk("aaaaaaaa", "cs"), mk("bbbbbbbb", "dashqard-customer-api")];
         let out = rendered(&rows, true);
@@ -663,30 +634,23 @@ mod tests {
     fn the_count_gutter_is_measured_without_escape_sequences() {
         // Padding computed over coloured text would be wrong by however many
         // bytes the escapes take, so plain and coloured must agree.
-        let mk = |sid: &str, project: &str| Row {
-            sid: sid.into(),
-            project: project.into(),
-            ..row()
-        };
+        let mk =
+            |sid: &str, project: &str| Row { sid: sid.into(), project: project.into(), ..row() };
         let rows = [mk("aaaaaaaa", "cs"), mk("bbbbbbbb", "dashqard-customer-api")];
 
         let plain = rendered(&rows, true);
         let mut buf: Vec<u8> = Vec::new();
         print_grouped(&mut buf, &rows, true, None);
         let painted = String::from_utf8(buf).unwrap();
-        let strip = |s: &str| {
-            s.replace(DIM, "").replace(CYAN, "").replace(BOLD, "").replace(RESET, "")
-        };
+        let strip =
+            |s: &str| s.replace(DIM, "").replace(CYAN, "").replace(BOLD, "").replace(RESET, "");
         assert_eq!(strip(&painted), plain, "colour must not move the gutter");
     }
 
     #[test]
     fn context_lines_are_indented_under_their_match() {
-        let r = Row {
-            before: vec!["line above".into()],
-            after: vec!["line below".into()],
-            ..row()
-        };
+        let r =
+            Row { before: vec!["line above".into()], after: vec!["line below".into()], ..row() };
         let out = r.render(false, None, 8);
         let lines: Vec<&str> = out.lines().collect();
         assert_eq!(lines.len(), 3);
@@ -724,11 +688,7 @@ mod tests {
 
     #[test]
     fn grouping_collects_a_session_even_when_its_matches_are_not_adjacent() {
-        let mk = |sid: &str, text: &str| Row {
-            sid: sid.into(),
-            text: text.into(),
-            ..row()
-        };
+        let mk = |sid: &str, text: &str| Row { sid: sid.into(), text: text.into(), ..row() };
         let rows = [mk("aaa", "one"), mk("bbb", "two"), mk("aaa", "three")];
         let groups = group_by_session(&rows);
         assert_eq!(groups.len(), 2);
@@ -773,17 +733,9 @@ mod tests {
 
     #[test]
     fn summary_counts_distinct_sessions_and_projects() {
-        let mk = |sid: &str, project: &str| Row {
-            sid: sid.into(),
-            project: project.into(),
-            ..row()
-        };
-        let rows = [
-            mk("aaa", "alpha"),
-            mk("aaa", "alpha"),
-            mk("bbb", "alpha"),
-            mk("ccc", "beta"),
-        ];
+        let mk =
+            |sid: &str, project: &str| Row { sid: sid.into(), project: project.into(), ..row() };
+        let rows = [mk("aaa", "alpha"), mk("aaa", "alpha"), mk("bbb", "alpha"), mk("ccc", "beta")];
         assert_eq!(summary(&rows), "4 matches · 3 sessions · 2 projects");
         assert_eq!(summary(&[row()]), "1 match · 1 session · 1 project");
     }
@@ -813,11 +765,8 @@ mod tests {
 
     #[test]
     fn the_regex_hint_fires_only_on_a_wide_result_from_a_metacharacter_pattern() {
-        let with = |pat: &str, fixed: bool| Opts {
-            pattern: pat.into(),
-            fixed,
-            ..Default::default()
-        };
+        let with =
+            |pat: &str, fixed: bool| Opts { pattern: pat.into(), fixed, ..Default::default() };
         // The case that motivated it: 'C++' matched every line containing a 'c'.
         assert!(regex_hint(&with("C++", false), 28_942).is_some());
         // A plain word cannot have been misread, however many rows it returns.

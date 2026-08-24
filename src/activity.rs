@@ -86,11 +86,8 @@ impl Activity {
     }
 
     pub fn projects(&self) -> Vec<(String, usize)> {
-        let mut out: Vec<(String, usize)> = self
-            .projects
-            .iter()
-            .map(|(p, n)| (p.clone(), *n))
-            .collect();
+        let mut out: Vec<(String, usize)> =
+            self.projects.iter().map(|(p, n)| (p.clone(), *n)).collect();
         out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         out
     }
@@ -283,10 +280,7 @@ mod tests {
     /// one session overall — the totals are not the columns added up.
     #[test]
     fn a_session_spanning_midnight_is_counted_once_overall() {
-        let a = tallied(&[
-            ("2026-08-20", "aaaa", "api"),
-            ("2026-08-21", "aaaa", "api"),
-        ]);
+        let a = tallied(&[("2026-08-20", "aaaa", "api"), ("2026-08-21", "aaaa", "api")]);
         assert_eq!(a.days().len(), 2);
         assert_eq!(a.sessions.len(), 1);
     }

@@ -36,10 +36,8 @@ impl Corpus {
     fn session(&self, project: &str, sid: &str, records: &[Value]) {
         let dir = self.root.join("projects").join(project);
         std::fs::create_dir_all(&dir).unwrap();
-        let body: String = records
-            .iter()
-            .map(|r| format!("{}\n", serde_json::to_string(r).unwrap()))
-            .collect();
+        let body: String =
+            records.iter().map(|r| format!("{}\n", serde_json::to_string(r).unwrap())).collect();
         std::fs::write(dir.join(format!("{sid}.jsonl")), body).unwrap();
     }
 
@@ -52,23 +50,58 @@ impl Corpus {
             &[
                 // Not a conversation turn -- must never surface.
                 json!({"type": "queue-operation", "sessionId": SID_A}),
-                msg("user", SID_A, "/home/u/alpha", "2026-07-01T10:00:00Z",
-                    json!("SELECT * FROM users WHERE id = 1")),
-                msg("assistant", SID_A, "/home/u/alpha", "2026-07-01T10:01:00Z",
-                    json!([{"type": "text", "text": r"Run this: make build \"}])),
-                msg("assistant", SID_A, "/home/u/alpha", "2026-07-01T10:02:00Z",
-                    json!([{"type": "thinking", "thinking": "pondering the needle"}])),
-                msg("assistant", SID_A, "/home/u/alpha", "2026-07-01T10:03:00Z",
+                msg(
+                    "user",
+                    SID_A,
+                    "/home/u/alpha",
+                    "2026-07-01T10:00:00Z",
+                    json!("SELECT * FROM users WHERE id = 1"),
+                ),
+                msg(
+                    "assistant",
+                    SID_A,
+                    "/home/u/alpha",
+                    "2026-07-01T10:01:00Z",
+                    json!([{"type": "text", "text": r"Run this: make build \"}]),
+                ),
+                msg(
+                    "assistant",
+                    SID_A,
+                    "/home/u/alpha",
+                    "2026-07-01T10:02:00Z",
+                    json!([{"type": "thinking", "thinking": "pondering the needle"}]),
+                ),
+                msg(
+                    "assistant",
+                    SID_A,
+                    "/home/u/alpha",
+                    "2026-07-01T10:03:00Z",
                     json!([{"type": "tool_use", "name": "Bash",
-                            "input": {"command": "grep zzsentinel"}}])),
-                meta(msg("user", SID_A, "/home/u/alpha", "2026-07-01T10:04:00Z",
-                    json!("meta noise needle"))),
-                sidechain(msg("assistant", SID_A, "/home/u/alpha", "2026-07-01T10:05:00Z",
-                    json!("subagent needle"))),
+                            "input": {"command": "grep zzsentinel"}}]),
+                ),
+                meta(msg(
+                    "user",
+                    SID_A,
+                    "/home/u/alpha",
+                    "2026-07-01T10:04:00Z",
+                    json!("meta noise needle"),
+                )),
+                sidechain(msg(
+                    "assistant",
+                    SID_A,
+                    "/home/u/alpha",
+                    "2026-07-01T10:05:00Z",
+                    json!("subagent needle"),
+                )),
                 // A tool result arrives as a *user*-type record even though the
                 // user typed none of it.
-                msg("user", SID_A, "/home/u/alpha", "2026-07-01T10:06:00Z",
-                    json!([{"type": "tool_result", "content": "zzresultonly payload"}])),
+                msg(
+                    "user",
+                    SID_A,
+                    "/home/u/alpha",
+                    "2026-07-01T10:06:00Z",
+                    json!([{"type": "tool_result", "content": "zzresultonly payload"}]),
+                ),
             ],
         );
 
@@ -77,19 +110,39 @@ impl Corpus {
             "-home-u-beta",
             SID_B,
             &[
-                msg("user", SID_B, "/home/u/beta", "2026-08-01T12:00:00Z",
-                    json!("multi line\nsecond needle line")),
-                msg("assistant", SID_B, "/home/u/beta", "2026-08-02T12:00:00Z",
-                    json!("beta project needle")),
+                msg(
+                    "user",
+                    SID_B,
+                    "/home/u/beta",
+                    "2026-08-01T12:00:00Z",
+                    json!("multi line\nsecond needle line"),
+                ),
+                msg(
+                    "assistant",
+                    SID_B,
+                    "/home/u/beta",
+                    "2026-08-02T12:00:00Z",
+                    json!("beta project needle"),
+                ),
                 // Quotes are escaped on disk, so a pattern spanning one matches
                 // the decoded text but never the raw JSON.
-                msg("assistant", SID_B, "/home/u/beta", "2026-08-03T12:00:00Z",
-                    json!(r#"he said "hello there" loudly"#)),
+                msg(
+                    "assistant",
+                    SID_B,
+                    "/home/u/beta",
+                    "2026-08-03T12:00:00Z",
+                    json!(r#"he said "hello there" loudly"#),
+                ),
                 // Metacharacters the user means literally: as a regex, 'C++'
                 // matches any line containing a 'c' and 'render(' does not
                 // compile at all.
-                msg("assistant", SID_B, "/home/u/beta", "2026-08-04T12:00:00Z",
-                    json!("compiled the C++ helper in render(props)")),
+                msg(
+                    "assistant",
+                    SID_B,
+                    "/home/u/beta",
+                    "2026-08-04T12:00:00Z",
+                    json!("compiled the C++ helper in render(props)"),
+                ),
             ],
         );
 
@@ -103,25 +156,44 @@ impl Corpus {
             &[
                 linked(
                     on_branch(
-                        msg("user", SID_C, "/home/u/gamma", "2026-08-10T09:00:00Z",
-                            json!("widget alignment is off")),
+                        msg(
+                            "user",
+                            SID_C,
+                            "/home/u/gamma",
+                            "2026-08-10T09:00:00Z",
+                            json!("widget alignment is off"),
+                        ),
                         "feature/widgets",
                     ),
-                    "u1", "",
+                    "u1",
+                    "",
                 ),
                 linked(
                     with_usage(
                         on_branch(
-                            msg("assistant", SID_C, "/home/u/gamma", "2026-08-10T09:01:00Z",
-                                json!([{"type": "text", "text": "padding was the culprit"}])),
+                            msg(
+                                "assistant",
+                                SID_C,
+                                "/home/u/gamma",
+                                "2026-08-10T09:01:00Z",
+                                json!([{"type": "text", "text": "padding was the culprit"}]),
+                            ),
                             "feature/widgets",
                         ),
-                        "claude-opus-5", 100, 40, 860,
+                        "claude-opus-5",
+                        100,
+                        40,
+                        860,
                     ),
-                    "a1", "u1",
+                    "a1",
+                    "u1",
                 ),
                 on_branch(
-                    msg("assistant", SID_C, "/home/u/gamma", "2026-08-10T09:02:00Z",
+                    msg(
+                        "assistant",
+                        SID_C,
+                        "/home/u/gamma",
+                        "2026-08-10T09:02:00Z",
                         json!([{"type": "tool_use", "name": "Edit",
                                 "input": {"file_path": "/home/u/gamma/src/widget.rs"}},
                                {"type": "tool_use", "name": "Read",
@@ -129,15 +201,21 @@ impl Corpus {
                                {"type": "tool_use", "name": "NotebookEdit",
                                 "input": {"notebook_path": "/home/u/gamma/notes.ipynb"}},
                                {"type": "tool_use", "name": "Bash",
-                                "input": {"command": "cargo test"}}])),
+                                "input": {"command": "cargo test"}}]),
+                    ),
                     "feature/widgets",
                 ),
                 // A later session on a different branch touches the same file,
                 // so "how many sessions" is not the same as "how many touches".
                 on_branch(
-                    msg("assistant", SID_C, "/home/u/gamma", "2026-08-11T09:00:00Z",
+                    msg(
+                        "assistant",
+                        SID_C,
+                        "/home/u/gamma",
+                        "2026-08-11T09:00:00Z",
                         json!([{"type": "tool_use", "name": "Write",
-                                "input": {"file_path": "/home/u/gamma/src/widget.rs"}}])),
+                                "input": {"file_path": "/home/u/gamma/src/widget.rs"}}]),
+                    ),
                     "main",
                 ),
                 // Titles are rewritten as a session goes on; the last one wins.
@@ -153,11 +231,21 @@ impl Corpus {
             "-home-u-delta",
             SID_D,
             &[
-                msg("user", SID_D, "/home/u/delta", "2026-08-14T10:00:00Z",
-                    json!("the widget alignment drifted again. should the widget spacing change?")),
-                msg("assistant", SID_D, "/home/u/delta", "2026-08-14T10:01:00Z",
+                msg(
+                    "user",
+                    SID_D,
+                    "/home/u/delta",
+                    "2026-08-14T10:00:00Z",
+                    json!("the widget alignment drifted again. should the widget spacing change?"),
+                ),
+                msg(
+                    "assistant",
+                    SID_D,
+                    "/home/u/delta",
+                    "2026-08-14T10:01:00Z",
                     json!([{"type": "text",
-                            "text": "widget spacing and widget alignment both need the same fix"}])),
+                            "text": "widget spacing and widget alignment both need the same fix"}]),
+                ),
                 json!({"type": "ai-title", "aiTitle": "Widget spacing drift", "sessionId": SID_D}),
             ],
         );
@@ -168,10 +256,8 @@ impl Corpus {
             json!({"display": "beta prompt", "project": "/home/u/beta",
                    "timestamp": 1_782_100_000_000i64, "sessionId": SID_B}),
         ];
-        let body: String = history
-            .iter()
-            .map(|r| format!("{}\n", serde_json::to_string(r).unwrap()))
-            .collect();
+        let body: String =
+            history.iter().map(|r| format!("{}\n", serde_json::to_string(r).unwrap())).collect();
         std::fs::write(self.root.join("history.jsonl"), body).unwrap();
     }
 
@@ -188,9 +274,7 @@ impl Corpus {
     /// Run with extra environment, for the settings the binary reads from it.
     fn run_env(&self, args: &[&str], env: &[(&str, &str)]) -> Run {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_cs"));
-        cmd.args(args)
-            .env("CLAUDE_HOME", &self.root)
-            .env_remove("CS_NO_PREFILTER");
+        cmd.args(args).env("CLAUDE_HOME", &self.root).env_remove("CS_NO_PREFILTER");
         for (k, v) in env {
             cmd.env(k, v);
         }
@@ -496,16 +580,23 @@ fn prefilter_agrees_with_full_decode() {
     // deliberately include escapes, anchors and unicode.
     let c = Corpus::new();
     for pat in [
-        "needle", "SELECT", "^SELECT", r"make build \", "second needle", "beta",
-        "users", "pondering", "id = 1$", "multi line", r#"said "hello"#,
-        r#""hello there""#, "loudly",
+        "needle",
+        "SELECT",
+        "^SELECT",
+        r"make build \",
+        "second needle",
+        "beta",
+        "users",
+        "pondering",
+        "id = 1$",
+        "multi line",
+        r#"said "hello"#,
+        r#""hello there""#,
+        "loudly",
     ] {
         let fast = c.run(&[pat]);
         let slow = c.run_full_decode(&[pat]);
-        assert_eq!(
-            fast.stdout, slow.stdout,
-            "prefilter disagreed with full decode on {pat:?}"
-        );
+        assert_eq!(fast.stdout, slow.stdout, "prefilter disagreed with full decode on {pat:?}");
         assert_eq!(fast.code, slow.code, "exit codes differ on {pat:?}");
     }
 }
@@ -583,10 +674,7 @@ fn the_preview_pane_width_wins_over_the_terminal_width() {
     // fzf runs the preview as a child of a full-width terminal, so COLUMNS
     // would be wrong there; FZF_PREVIEW_COLUMNS is the honest answer.
     let c = Corpus::new();
-    let r = c.run_env(
-        &["show", SID_A],
-        &[("COLUMNS", "200"), ("FZF_PREVIEW_COLUMNS", "45")],
-    );
+    let r = c.run_env(&["show", SID_A], &[("COLUMNS", "200"), ("FZF_PREVIEW_COLUMNS", "45")]);
     let rule = r.lines().iter().find(|l| l.starts_with("── YOU")).unwrap().to_string();
     assert_eq!(rule.chars().count(), 45, "{rule}");
 }
@@ -864,8 +952,11 @@ fn a_bad_date_is_rejected_rather_than_matching_nothing() {
 fn thread_context_shows_the_turns_either_side() {
     let c = Corpus::new();
     let r = c.run(&["--thread", "padding was the culprit"]);
-    assert!(r.stdout.contains("widget alignment is off"),
-            "the prompt that led to the match belongs above it: {}", r.stdout);
+    assert!(
+        r.stdout.contains("widget alignment is off"),
+        "the prompt that led to the match belongs above it: {}",
+        r.stdout
+    );
     assert!(r.stdout.contains("\u{2191}"), "and it should be marked as lying above: {}", r.stdout);
 }
 
@@ -873,8 +964,11 @@ fn thread_context_shows_the_turns_either_side() {
 fn thread_context_reaches_the_other_speaker() {
     let c = Corpus::new();
     let r = c.run(&["--thread", "widget alignment"]);
-    assert!(r.stdout.contains("padding was the culprit"),
-            "a user match should show the reply it drew: {}", r.stdout);
+    assert!(
+        r.stdout.contains("padding was the culprit"),
+        "a user match should show the reply it drew: {}",
+        r.stdout
+    );
     assert!(r.stdout.contains("\u{2193}"), "{}", r.stdout);
 }
 
@@ -885,8 +979,11 @@ fn thread_context_reaches_the_other_speaker() {
 fn thread_replaces_line_context_rather_than_stacking_with_it() {
     let c = Corpus::new();
     let r = c.run(&["--thread", "-C", "2", "second needle line"]);
-    assert!(!r.stdout.contains("multi line"),
-            "the neighbouring line should give way to the neighbouring turn: {}", r.stdout);
+    assert!(
+        !r.stdout.contains("multi line"),
+        "the neighbouring line should give way to the neighbouring turn: {}",
+        r.stdout
+    );
 }
 
 #[test]
@@ -910,8 +1007,11 @@ fn a_session_is_labelled_by_its_title_when_it_has_one() {
     let r = c.run(&["sessions"]);
     assert!(r.stdout.contains("Widget padding fix"), "{}", r.stdout);
     assert!(!r.stdout.contains("An early guess"), "the last title wins: {}", r.stdout);
-    assert!(!r.stdout.contains("widget alignment is off"),
-            "a titled session should not fall back to its prompt: {}", r.stdout);
+    assert!(
+        !r.stdout.contains("widget alignment is off"),
+        "a titled session should not fall back to its prompt: {}",
+        r.stdout
+    );
 }
 
 #[test]
@@ -1423,12 +1523,7 @@ fn group_folds_matches_under_one_heading_per_session() {
     assert_eq!(r.code, 0);
     // Two sessions match, so each id heads its own block exactly once.
     for sid in ["aaaaaaaa", "bbbbbbbb"] {
-        assert_eq!(
-            r.stdout.matches(sid).count(),
-            1,
-            "{sid} should head one group:\n{}",
-            r.stdout
-        );
+        assert_eq!(r.stdout.matches(sid).count(), 1, "{sid} should head one group:\n{}", r.stdout);
     }
     assert!(r.stdout.contains("matches") || r.stdout.contains("match"), "{}", r.stdout);
 }
@@ -1544,11 +1639,7 @@ fn a_missing_history_file_is_reported() {
 #[test]
 fn malformed_lines_are_skipped_not_fatal() {
     let c = Corpus::new();
-    let path: PathBuf = c
-        .root
-        .join("projects")
-        .join("-home-u-beta")
-        .join(format!("{SID_B}.jsonl"));
+    let path: PathBuf = c.root.join("projects").join("-home-u-beta").join(format!("{SID_B}.jsonl"));
     let mut body = std::fs::read_to_string(&path).unwrap();
     body.push_str("{ this is not json\n");
     body.push('\n');
@@ -1593,19 +1684,15 @@ fn history_reports_when_a_topic_started_and_stopped() {
     assert!(r.stdout.contains("aaaaaaaa"), "first session: {}", r.stdout);
     assert!(r.stdout.contains("2026-08-02 12:00"), "last: {}", r.stdout);
     assert!(r.stdout.contains("bbbbbbbb"), "last session: {}", r.stdout);
-    assert!(
-        r.stdout.contains("4 matches · 2 sessions · 2 projects"),
-        "{}",
-        r.stdout
-    );
+    assert!(r.stdout.contains("4 matches · 2 sessions · 2 projects"), "{}", r.stdout);
 }
 
 #[test]
 fn history_counts_the_same_result_set_a_search_returns() {
     let c = Corpus::new();
     let searched = c.run(&["--plain", "needle"]).count();
-    let v: Value = serde_json::from_str(c.run(&["history", "--json", "needle"]).stdout.trim())
-        .unwrap();
+    let v: Value =
+        serde_json::from_str(c.run(&["history", "--json", "needle"]).stdout.trim()).unwrap();
     assert_eq!(v["matches"], searched, "history counts what search lists");
     assert_eq!(v["sessions"], 2);
     assert_eq!(v["first_session"], "aaaaaaaa");

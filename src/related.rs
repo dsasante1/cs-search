@@ -136,11 +136,8 @@ pub fn candidates(path: &Path) -> Vec<String> {
 
 /// Which of the candidate terms each session in the corpus uses.
 fn sweep(terms: &[String], jobs: usize) -> Vec<Seen> {
-    let index: HashMap<&str, u32> = terms
-        .iter()
-        .enumerate()
-        .map(|(i, t)| (t.as_str(), i as u32))
-        .collect();
+    let index: HashMap<&str, u32> =
+        terms.iter().enumerate().map(|(i, t)| (t.as_str(), i as u32)).collect();
 
     let queue = Arc::new(Mutex::new(scan::transcripts()));
     let out: Arc<Mutex<Vec<Seen>>> = Arc::new(Mutex::new(Vec::new()));
@@ -211,9 +208,7 @@ fn weights(terms: &[String], seen: &[Seen]) -> Vec<f64> {
             df[i as usize] += 1;
         }
     }
-    df.into_iter()
-        .map(|d| if d == 0 { 0.0 } else { (n / d as f64).ln() })
-        .collect()
+    df.into_iter().map(|d| if d == 0 { 0.0 } else { (n / d as f64).ln() }).collect()
 }
 
 /// Rank the corpus against one session's vocabulary.
@@ -251,11 +246,7 @@ fn rank(terms: &[String], seen: &[Seen], target: &str, limit: usize) -> Vec<Rela
                 last: s.last.clone(),
                 title: sessions::last_title(&s.path).unwrap_or_default(),
                 shared: shared.len(),
-                terms: shared
-                    .iter()
-                    .take(SHOWN_TERMS)
-                    .map(|(i, _)| terms[*i].clone())
-                    .collect(),
+                terms: shared.iter().take(SHOWN_TERMS).map(|(i, _)| terms[*i].clone()).collect(),
                 score,
             })
         })
@@ -274,12 +265,7 @@ fn rank(terms: &[String], seen: &[Seen], target: &str, limit: usize) -> Vec<Rela
 
 pub fn print(w: &mut impl Write, rows: &[Related], color: bool) {
     let (c, d, z) = if color { (CYAN, DIM, RESET) } else { ("", "", "") };
-    let width = rows
-        .iter()
-        .map(|r| r.project.chars().count())
-        .max()
-        .unwrap_or(8)
-        .clamp(8, 20);
+    let width = rows.iter().map(|r| r.project.chars().count()).max().unwrap_or(8).clamp(8, 20);
     let weights: Vec<String> = rows.iter().map(|r| format!("{:.2}", r.score)).collect();
     let digits = weights.iter().map(|n| n.len()).max().unwrap_or(6).max(6);
     // weight + 2 + day(10) + 2 + project + 2 + sid(8) + 2
@@ -391,9 +377,8 @@ mod tests {
 
     #[test]
     fn words_are_split_on_everything_that_is_not_one() {
-        let got: Vec<&str> = split("cache_read, ui-overhaul; foo.bar (baz)")
-            .filter(|s| !s.is_empty())
-            .collect();
+        let got: Vec<&str> =
+            split("cache_read, ui-overhaul; foo.bar (baz)").filter(|s| !s.is_empty()).collect();
         assert_eq!(got, ["cache_read", "ui-overhaul", "foo", "bar", "baz"]);
     }
 
@@ -428,12 +413,7 @@ mod tests {
     #[test]
     fn a_rare_term_outweighs_a_common_one() {
         // term0 is everywhere, term1 is in one session out of four.
-        let corpus = vec![
-            seen("a", &[0, 1]),
-            seen("b", &[0]),
-            seen("c", &[0]),
-            seen("d", &[0]),
-        ];
+        let corpus = vec![seen("a", &[0, 1]), seen("b", &[0]), seen("c", &[0]), seen("d", &[0])];
         let w = weights(&terms(2), &corpus);
         assert!(w[1] > w[0], "{w:?}");
     }
@@ -446,11 +426,7 @@ mod tests {
 
     #[test]
     fn the_session_asked_about_is_never_related_to_itself() {
-        let corpus = vec![
-            seen("target", &[0, 1]),
-            seen("other", &[0, 1]),
-            seen("third", &[0]),
-        ];
+        let corpus = vec![seen("target", &[0, 1]), seen("other", &[0, 1]), seen("third", &[0])];
         let out = rank(&terms(2), &corpus, "target", 10);
         assert!(out.iter().all(|r| r.sid != "target"), "{:?}", out.len());
     }
@@ -505,12 +481,8 @@ mod tests {
 
     #[test]
     fn the_limit_is_honoured() {
-        let corpus = vec![
-            seen("target", &[0]),
-            seen("a", &[0]),
-            seen("b", &[0]),
-            seen("filler", &[]),
-        ];
+        let corpus =
+            vec![seen("target", &[0]), seen("a", &[0]), seen("b", &[0]), seen("filler", &[])];
         assert_eq!(rank(&terms(1), &corpus, "target", 1).len(), 1);
     }
 }

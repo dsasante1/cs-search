@@ -229,7 +229,10 @@ mod tests {
 
     #[test]
     fn every_escaped_character_round_trips() {
-        assert_eq!(escape(r#"<a href="x">&'</a>"#), "&lt;a href=&quot;x&quot;&gt;&amp;&#39;&lt;/a&gt;");
+        assert_eq!(
+            escape(r#"<a href="x">&'</a>"#),
+            "&lt;a href=&quot;x&quot;&gt;&amp;&#39;&lt;/a&gt;"
+        );
         assert_eq!(escape("plain"), "plain");
     }
 

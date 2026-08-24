@@ -162,11 +162,8 @@ fn read(path: &Path, opts: &Opts, into: &mut Stats) {
 
         let t = usage(&v);
         into.tokens.add(&t);
-        let model = v
-            .pointer("/message/model")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown")
-            .to_owned();
+        let model =
+            v.pointer("/message/model").and_then(Value::as_str).unwrap_or("unknown").to_owned();
         let e = into.models.entry(model).or_default();
         e.0 += 1;
         e.1.add(&t);
@@ -277,7 +274,11 @@ pub fn report(w: &mut impl Write, s: &Stats, prices: Option<&Prices>) {
     models.sort_by(|a, b| b.1 .0.cmp(&a.1 .0).then_with(|| a.0.cmp(b.0)));
     if !models.is_empty() {
         let width = models.iter().map(|(m, _)| m.chars().count()).max().unwrap_or(5).min(34);
-        let _ = writeln!(w, "\nMODEL{} replies    input   output    cached", " ".repeat(width.saturating_sub(5)));
+        let _ = writeln!(
+            w,
+            "\nMODEL{} replies    input   output    cached",
+            " ".repeat(width.saturating_sub(5))
+        );
         for (model, (n, t)) in &models {
             let _ = writeln!(
                 w,
@@ -337,11 +338,8 @@ pub fn report_json(w: &mut impl Write, s: &Stats, prices: Option<&Prices>) {
         .collect();
     models.sort_by_key(|m| m["model"].as_str().unwrap_or("").to_owned());
 
-    let mut projects: Vec<Value> = s
-        .projects
-        .iter()
-        .map(|(name, n)| json!({"project": name, "messages": n}))
-        .collect();
+    let mut projects: Vec<Value> =
+        s.projects.iter().map(|(name, n)| json!({"project": name, "messages": n})).collect();
     projects.sort_by_key(|p| p["project"].as_str().unwrap_or("").to_owned());
 
     let mut out = json!({
@@ -465,9 +463,18 @@ mod tests {
 
     #[test]
     fn merging_widens_the_date_range_from_both_ends() {
-        let mut a = Stats { first: "2026-05-01".into(), last: "2026-05-09".into(), ..Default::default() };
-        a.merge(Stats { first: "2026-04-01".into(), last: "2026-04-02".into(), ..Default::default() });
-        a.merge(Stats { first: "2026-09-01".into(), last: "2026-09-02".into(), ..Default::default() });
+        let mut a =
+            Stats { first: "2026-05-01".into(), last: "2026-05-09".into(), ..Default::default() };
+        a.merge(Stats {
+            first: "2026-04-01".into(),
+            last: "2026-04-02".into(),
+            ..Default::default()
+        });
+        a.merge(Stats {
+            first: "2026-09-01".into(),
+            last: "2026-09-02".into(),
+            ..Default::default()
+        });
         assert_eq!((a.first.as_str(), a.last.as_str()), ("2026-04-01", "2026-09-02"));
     }
 

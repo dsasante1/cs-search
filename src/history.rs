@@ -40,10 +40,8 @@ pub fn summarize(pattern: &str, rows: &[Row]) -> History {
     for r in rows {
         *per_project.entry(r.project.as_str()).or_default() += 1;
     }
-    let mut projects: Vec<(String, usize)> = per_project
-        .into_iter()
-        .map(|(p, n)| (p.to_owned(), n))
-        .collect();
+    let mut projects: Vec<(String, usize)> =
+        per_project.into_iter().map(|(p, n)| (p.to_owned(), n)).collect();
     projects.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
     let mut sids: Vec<&str> = rows.iter().map(|r| r.sid.as_str()).collect();
@@ -85,10 +83,7 @@ pub fn ago(ts: &str, today: NaiveDate) -> String {
 pub fn report(w: &mut impl Write, h: &History, today: NaiveDate) {
     let _ = writeln!(w, "'{}'", h.pattern);
     let _ = writeln!(w);
-    for (label, ts, sid) in [
-        ("first", &h.first, &h.first_sid),
-        ("last", &h.last, &h.last_sid),
-    ] {
+    for (label, ts, sid) in [("first", &h.first, &h.first_sid), ("last", &h.last, &h.last_sid)] {
         let when = ago(ts, today);
         let _ = writeln!(w, "  {label:<7} {ts}  {sid}  {when}");
     }
@@ -118,11 +113,8 @@ pub fn report(w: &mut impl Write, h: &History, today: NaiveDate) {
 /// inside the one object rather than as a second, differently-shaped stream of
 /// lines after it.
 pub fn report_json(w: &mut impl Write, h: &History, sessions: Option<&[Row]>) {
-    let projects: Vec<_> = h
-        .projects
-        .iter()
-        .map(|(p, n)| json!({"project": p, "matches": n}))
-        .collect();
+    let projects: Vec<_> =
+        h.projects.iter().map(|(p, n)| json!({"project": p, "matches": n})).collect();
     let mut out = json!({
             "pattern": h.pattern,
             "matches": h.matches,

@@ -104,11 +104,7 @@ pub fn pattern(q: &str) -> Option<Regex> {
 pub fn resolve(id: &str) -> Vec<PathBuf> {
     scan::transcripts()
         .into_iter()
-        .filter(|p| {
-            p.file_stem()
-                .and_then(|s| s.to_str())
-                .is_some_and(|s| s.starts_with(id))
-        })
+        .filter(|p| p.file_stem().and_then(|s| s.to_str()).is_some_and(|s| s.starts_with(id)))
         .collect()
 }
 
@@ -253,27 +249,30 @@ fn speaker_name(role: &str) -> &str {
 }
 
 fn dim(color: bool) -> &'static str {
-    if color { DIM } else { "" }
+    if color {
+        DIM
+    } else {
+        ""
+    }
 }
 
 fn reset(color: bool) -> &'static str {
-    if color { RESET } else { "" }
+    if color {
+        RESET
+    } else {
+        ""
+    }
 }
 
 /// The slice to print, how many lines were skipped to get there, and the turn
 /// heading to restate if the jump landed inside a turn already underway.
-fn window<'a>(
-    chunks: &'a [Chunk],
-    at: Option<&Regex>,
-) -> (&'a [Chunk], usize, Option<&'a Chunk>) {
+fn window<'a>(chunks: &'a [Chunk], at: Option<&Regex>) -> (&'a [Chunk], usize, Option<&'a Chunk>) {
     let Some(re) = at else {
         return (chunks, 0, None);
     };
     // Only body text can match: a divider is chrome this program drew, so
     // letting a pattern hit it would jump to an arbitrary turn.
-    let hit = chunks
-        .iter()
-        .position(|c| matches!(c, Chunk::Text(t) if re.is_match(t)));
+    let hit = chunks.iter().position(|c| matches!(c, Chunk::Text(t) if re.is_match(t)));
     let Some(i) = hit else {
         return (chunks, 0, None);
     };
@@ -281,11 +280,7 @@ fn window<'a>(
     let from = i.saturating_sub(LEAD);
     let is_turn = |c: &&Chunk| matches!(c, Chunk::Turn { .. });
     let already_shown = chunks[from..=i].iter().any(|c| is_turn(&c));
-    let restated = if already_shown {
-        None
-    } else {
-        chunks[..from].iter().rev().find(is_turn)
-    };
+    let restated = if already_shown { None } else { chunks[..from].iter().rev().find(is_turn) };
     (&chunks[from..], from, restated)
 }
 
@@ -385,10 +380,9 @@ fn render_blocks(r: &Record, typed_only: bool, opts: BlockOpts) -> Vec<String> {
                 let ty = b.get("type").and_then(Value::as_str).unwrap_or("");
                 match ty {
                     "text" => b.get("text").and_then(Value::as_str).map(str::to_owned),
-                    "thinking" if opts.thinking => b
-                        .get("thinking")
-                        .and_then(Value::as_str)
-                        .map(|t| format!("[thinking] {t}")),
+                    "thinking" if opts.thinking => {
+                        b.get("thinking").and_then(Value::as_str).map(|t| format!("[thinking] {t}"))
+                    }
                     "tool_use" if opts.tools => {
                         let name = b.get("name").and_then(Value::as_str).unwrap_or("?");
                         let input = b.get("input").map(stringify).unwrap_or_default();
@@ -545,11 +539,8 @@ mod tests {
     fn the_coloured_divider_measures_the_same_as_the_plain_one() {
         let plain = divider(Who::You, "2026-08-03 16:31", 70, false);
         let painted = divider(Who::You, "2026-08-03 16:31", 70, true);
-        let stripped: String = painted
-            .replace(DIM, "")
-            .replace(CYAN, "")
-            .replace(MAGENTA, "")
-            .replace(RESET, "");
+        let stripped: String =
+            painted.replace(DIM, "").replace(CYAN, "").replace(MAGENTA, "").replace(RESET, "");
         assert_eq!(stripped, plain, "colour must not change the geometry");
     }
 

@@ -13,9 +13,9 @@ use crate::record::{BlockOpts, Record};
 use regex::bytes::Regex as BytesRegex;
 use regex::Regex;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use walkdir::WalkDir;
@@ -124,8 +124,7 @@ pub fn compile(opts: &Opts) -> Result<(Regex, Option<String>), String> {
 }
 
 fn literal(pattern: &str) -> Result<Regex, String> {
-    Regex::new(&format!("(?i){}", regex::escape(pattern)))
-        .map_err(|e| format!("bad pattern: {e}"))
+    Regex::new(&format!("(?i){}", regex::escape(pattern))).map_err(|e| format!("bad pattern: {e}"))
 }
 
 pub struct Hits {
@@ -143,25 +142,19 @@ struct Ctx<'a> {
 pub fn search(opts: &Opts, re: &Regex) -> Hits {
     // `CS_NO_PREFILTER=1` forces the slow, unconditionally-correct path; the test
     // suite uses it to check the prefilter never drops a result.
-    let disabled = has_positional_assertion(&opts.pattern)
-        || std::env::var_os("CS_NO_PREFILTER").is_some();
+    let disabled =
+        has_positional_assertion(&opts.pattern) || std::env::var_os("CS_NO_PREFILTER").is_some();
     let pre = (!disabled)
         .then(|| BytesRegex::new(re.as_str()).expect("prefilter mirrors the main pattern"));
     let ctx = Ctx {
         re,
         pre: pre.as_ref(),
         opts,
-        blocks: BlockOpts {
-            thinking: opts.thinking,
-            tools: opts.tools,
-        },
+        blocks: BlockOpts { thinking: opts.thinking, tools: opts.tools },
     };
 
     let queue = Arc::new(Mutex::new(transcripts()));
-    let out: Arc<Mutex<Hits>> = Arc::new(Mutex::new(Hits {
-        rows: Vec::new(),
-        files: Vec::new(),
-    }));
+    let out: Arc<Mutex<Hits>> = Arc::new(Mutex::new(Hits { rows: Vec::new(), files: Vec::new() }));
 
     std::thread::scope(|s| {
         for _ in 0..opts.jobs {
@@ -284,9 +277,7 @@ fn emit(v: &Value, ctx: &Ctx, rows: &mut Vec<Row>) {
                     Vec::new()
                 } else {
                     neighbours(
-                        lines
-                            .get(i + 1..(i + 1 + o.after).min(lines.len()))
-                            .unwrap_or(&[]),
+                        lines.get(i + 1..(i + 1 + o.after).min(lines.len())).unwrap_or(&[]),
                         o.chars,
                     )
                 },
@@ -349,11 +340,8 @@ fn scan_threaded(path: &Path, ctx: &Ctx, rows: &mut Vec<Row>) {
         origin.extend((before..rows.len()).map(|i| (i, here)));
     }
 
-    let by_uuid: HashMap<&str, usize> = turns
-        .iter()
-        .enumerate()
-        .map(|(i, t)| (t.uuid.as_str(), i))
-        .collect();
+    let by_uuid: HashMap<&str, usize> =
+        turns.iter().enumerate().map(|(i, t)| (t.uuid.as_str(), i)).collect();
     // First child wins: a branch point in the chain is a retry or a fork, and
     // the reply that actually followed is the earlier one.
     let mut child_of: HashMap<&str, usize> = HashMap::new();
@@ -388,11 +376,7 @@ fn lead(arrow: char, turn: Option<&Turn>) -> Vec<String> {
 /// Context lines, cleaned up the same way the matching line is. Blank lines are
 /// dropped rather than printed as empty rows.
 fn neighbours(lines: &[&str], chars: usize) -> Vec<String> {
-    lines
-        .iter()
-        .map(|l| clip(&squash(l), chars))
-        .filter(|l| !l.trim().is_empty())
-        .collect()
+    lines.iter().map(|l| clip(&squash(l), chars)).filter(|l| !l.trim().is_empty()).collect()
 }
 
 #[cfg(test)]
@@ -407,8 +391,16 @@ mod tests {
     #[test]
     fn positional_assertions_are_detected() {
         for pat in [
-            "^SELECT", "ERROR$", r"\bword", r"\Bfoo", r"\Astart", r"end\z", r"\Zend",
-            r"\<word\>", "^", "$",
+            "^SELECT",
+            "ERROR$",
+            r"\bword",
+            r"\Bfoo",
+            r"\Astart",
+            r"end\z",
+            r"\Zend",
+            r"\<word\>",
+            "^",
+            "$",
         ] {
             assert!(has_positional_assertion(pat), "should detect: {pat}");
         }
@@ -417,8 +409,17 @@ mod tests {
     #[test]
     fn ordinary_patterns_keep_the_prefilter() {
         for pat in [
-            "plain", "a.b", "foo|bar", "a+b*", r"\d+", r"\w+", r"\s", "[abc]",
-            "ALTER TABLE", "(group)", "x{2,3}",
+            "plain",
+            "a.b",
+            "foo|bar",
+            "a+b*",
+            r"\d+",
+            r"\w+",
+            r"\s",
+            "[abc]",
+            "ALTER TABLE",
+            "(group)",
+            "x{2,3}",
         ] {
             assert!(!has_positional_assertion(pat), "should not detect: {pat}");
         }
@@ -488,8 +489,17 @@ mod tests {
             r"C:\Users\path",
         ];
         let patterns = [
-            "plain", "quotes", "backslash", "here", "line two", "café", "nested",
-            r#"has "quotes""#, r"\ here", "Users", "☕",
+            "plain",
+            "quotes",
+            "backslash",
+            "here",
+            "line two",
+            "café",
+            "nested",
+            r#"has "quotes""#,
+            r"\ here",
+            "Users",
+            "☕",
         ];
 
         for text in texts {

@@ -72,11 +72,7 @@ fn stamp(v: &Value) -> String {
     v.get("timestamp")
         .and_then(Value::as_i64)
         .and_then(DateTime::from_timestamp_millis)
-        .map(|dt| {
-            dt.with_timezone(&Local)
-                .format("%Y-%m-%d %H:%M")
-                .to_string()
-        })
+        .map(|dt| dt.with_timezone(&Local).format("%Y-%m-%d %H:%M").to_string())
         .unwrap_or_default()
 }
 

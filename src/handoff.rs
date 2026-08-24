@@ -100,10 +100,8 @@ pub fn scan(path: &Path) -> Session {
     }
 
     let cwd = s.cwd.clone();
-    let mut files: Vec<(usize, String)> = touches
-        .into_iter()
-        .map(|(path, n)| (n, relative(&path, &cwd)))
-        .collect();
+    let mut files: Vec<(usize, String)> =
+        touches.into_iter().map(|(path, n)| (n, relative(&path, &cwd))).collect();
     files.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
     s.files = files;
     s
@@ -196,11 +194,7 @@ pub fn report(
     field(
         w,
         "turns",
-        &format!(
-            "{} yours · {} assistant",
-            thousands(s.yours as u64),
-            thousands(s.theirs as u64)
-        ),
+        &format!("{} yours · {} assistant", thousands(s.yours as u64), thousands(s.theirs as u64)),
     );
 
     let t = &st.tokens;
@@ -274,14 +268,12 @@ pub fn run(id: &str, prices: Option<&Prices>, jobs: usize) -> i32 {
     // Deliberately unfiltered but for the session itself: a token total shaped
     // by a date range the rest of the report knows nothing about would be a
     // number that disagreed with the lines above it.
-    let st = stats::collect(&Opts {
-        session: s.sid.clone(),
-        jobs,
-        ..Opts::default()
-    });
+    let st = stats::collect(&Opts { session: s.sid.clone(), jobs, ..Opts::default() });
     // What was said, not what was run: see `show::turns_with`.
     let turns = File::open(&path)
-        .map(|fh| show::turns_with(fh, "", crate::record::BlockOpts { thinking: false, tools: false }))
+        .map(|fh| {
+            show::turns_with(fh, "", crate::record::BlockOpts { thinking: false, tools: false })
+        })
         .unwrap_or_default();
 
     let stdout = std::io::stdout();
@@ -322,10 +314,8 @@ mod tests {
 
     #[test]
     fn the_tail_is_the_last_few_turns_in_the_order_they_happened() {
-        let turns: Vec<Turn> = ["first", "second", "third", "fourth"]
-            .iter()
-            .map(|t| turn(t))
-            .collect();
+        let turns: Vec<Turn> =
+            ["first", "second", "third", "fourth"].iter().map(|t| turn(t)).collect();
         let got: Vec<&str> = tail(&turns).iter().map(|(t, _)| t.text.as_str()).collect();
         assert_eq!(got, ["second", "third", "fourth"]);
     }

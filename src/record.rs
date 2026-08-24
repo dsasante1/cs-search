@@ -83,10 +83,7 @@ impl<'a> Record<'a> {
         };
         match content {
             Value::String(s) => vec![s.clone()],
-            Value::Array(items) => items
-                .iter()
-                .filter_map(|b| block_text(b, opts))
-                .collect(),
+            Value::Array(items) => items.iter().filter_map(|b| block_text(b, opts)).collect(),
             _ => Vec::new(),
         }
     }
@@ -96,9 +93,7 @@ fn block_text(b: &Value, opts: BlockOpts) -> Option<String> {
     let ty = b.get("type").and_then(Value::as_str).unwrap_or("");
     match ty {
         "text" => b.get("text").and_then(Value::as_str).map(str::to_owned),
-        "thinking" if opts.thinking => {
-            b.get("thinking").and_then(Value::as_str).map(str::to_owned)
-        }
+        "thinking" if opts.thinking => b.get("thinking").and_then(Value::as_str).map(str::to_owned),
         "tool_use" if opts.tools => {
             let name = b.get("name").and_then(Value::as_str).unwrap_or("tool");
             let input = b.get("input").map(stringify).unwrap_or_default();
@@ -235,12 +230,7 @@ mod tests {
         assert_eq!(r.blocks(TEXT_ONLY), vec!["visible"]);
         assert_eq!(
             r.blocks(ALL),
-            vec![
-                "visible",
-                "pondering",
-                r#"Bash {"cmd":"ls"}"#,
-                "output here",
-            ]
+            vec!["visible", "pondering", r#"Bash {"cmd":"ls"}"#, "output here",]
         );
         assert_eq!(
             r.blocks(BlockOpts { thinking: true, tools: false }),
@@ -282,12 +272,9 @@ mod tests {
 
     #[test]
     fn only_user_and_assistant_count_as_conversation() {
-        for (ty, want) in [
-            ("user", true),
-            ("assistant", true),
-            ("queue-operation", false),
-            ("summary", false),
-        ] {
+        for (ty, want) in
+            [("user", true), ("assistant", true), ("queue-operation", false), ("summary", false)]
+        {
             let v = json!({"type": ty});
             assert_eq!(Record::new(&v).is_conversation(), want, "type={ty}");
         }
