@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 const SID_A: &str = "aaaaaaaa-1111-4444-8888-aaaaaaaaaaaa";
 const SID_B: &str = "bbbbbbbb-2222-4444-8888-bbbbbbbbbbbb";
+const SID_C: &str = "cccccccc-3333-4444-8888-cccccccccccc";
 
 /// A throwaway `CLAUDE_HOME` that deletes itself when the test ends.
 struct Corpus {
@@ -88,6 +89,59 @@ impl Corpus {
                 // compile at all.
                 msg("assistant", SID_B, "/home/u/beta", "2026-08-04T12:00:00Z",
                     json!("compiled the C++ helper in render(props)")),
+            ],
+        );
+
+        // Session C: everything the other two predate — a branch, a generated
+        // title, tool calls that name files, and the usage block `stats` reads.
+        // Its wording is deliberately unique so the older tests keep counting
+        // what they were written to count.
+        self.session(
+            "-home-u-gamma",
+            SID_C,
+            &[
+                linked(
+                    on_branch(
+                        msg("user", SID_C, "/home/u/gamma", "2026-08-10T09:00:00Z",
+                            json!("widget alignment is off")),
+                        "feature/widgets",
+                    ),
+                    "u1", "",
+                ),
+                linked(
+                    with_usage(
+                        on_branch(
+                            msg("assistant", SID_C, "/home/u/gamma", "2026-08-10T09:01:00Z",
+                                json!([{"type": "text", "text": "padding was the culprit"}])),
+                            "feature/widgets",
+                        ),
+                        "claude-opus-5", 100, 40, 860,
+                    ),
+                    "a1", "u1",
+                ),
+                on_branch(
+                    msg("assistant", SID_C, "/home/u/gamma", "2026-08-10T09:02:00Z",
+                        json!([{"type": "tool_use", "name": "Edit",
+                                "input": {"file_path": "/home/u/gamma/src/widget.rs"}},
+                               {"type": "tool_use", "name": "Read",
+                                "input": {"file_path": "/home/u/gamma/src/widget.rs"}},
+                               {"type": "tool_use", "name": "NotebookEdit",
+                                "input": {"notebook_path": "/home/u/gamma/notes.ipynb"}},
+                               {"type": "tool_use", "name": "Bash",
+                                "input": {"command": "cargo test"}}])),
+                    "feature/widgets",
+                ),
+                // A later session on a different branch touches the same file,
+                // so "how many sessions" is not the same as "how many touches".
+                on_branch(
+                    msg("assistant", SID_C, "/home/u/gamma", "2026-08-11T09:00:00Z",
+                        json!([{"type": "tool_use", "name": "Write",
+                                "input": {"file_path": "/home/u/gamma/src/widget.rs"}}])),
+                    "main",
+                ),
+                // Titles are rewritten as a session goes on; the last one wins.
+                json!({"type": "ai-title", "aiTitle": "An early guess", "sessionId": SID_C}),
+                json!({"type": "ai-title", "aiTitle": "Widget padding fix", "sessionId": SID_C}),
             ],
         );
 
@@ -186,6 +240,29 @@ fn meta(mut v: Value) -> Value {
 
 fn sidechain(mut v: Value) -> Value {
     v["isSidechain"] = json!(true);
+    v
+}
+
+fn on_branch(mut v: Value, branch: &str) -> Value {
+    v["gitBranch"] = json!(branch);
+    v
+}
+
+/// Chain a record to the one before it, which is what `--thread` walks.
+fn linked(mut v: Value, uuid: &str, parent: &str) -> Value {
+    v["uuid"] = json!(uuid);
+    v["parentUuid"] = json!(parent);
+    v
+}
+
+fn with_usage(mut v: Value, model: &str, input: u64, output: u64, cache_read: u64) -> Value {
+    v["message"]["model"] = json!(model);
+    v["message"]["usage"] = json!({
+        "input_tokens": input,
+        "output_tokens": output,
+        "cache_read_input_tokens": cache_read,
+        "cache_creation_input_tokens": 0,
+    });
     v
 }
 
@@ -581,7 +658,8 @@ fn sessions_lists_each_session_with_its_opening_prompt() {
     let c = Corpus::new();
     let r = c.run(&["sessions"]);
     assert_eq!(r.code, 0);
-    assert_eq!(r.count(), 2, "{}", r.stdout);
+    assert_eq!(r.count(), 3, "{}", r.stdout);
+    // A and B have no title, so they fall back to how they opened.
     assert!(r.stdout.contains("SELECT * FROM users"), "{}", r.stdout);
     // A multi-line opening prompt is flattened onto one row.
     assert!(r.stdout.contains("multi line second needle line"), "{}", r.stdout);
@@ -726,9 +804,10 @@ fn projects_lists_each_working_directory_with_a_session_count() {
     let c = Corpus::new();
     let r = c.run(&["projects"]);
     assert_eq!(r.code, 0, "stderr: {}", r.stderr);
-    assert_eq!(r.count(), 2, "{}", r.stdout);
+    assert_eq!(r.count(), 3, "{}", r.stdout);
     assert!(r.stdout.contains("/home/u/alpha"), "{}", r.stdout);
     assert!(r.stdout.contains("/home/u/beta"), "{}", r.stdout);
+    assert!(r.stdout.contains("/home/u/gamma"), "{}", r.stdout);
     // The listing exists so -P has something to name; one session each here.
     for line in r.lines() {
         assert!(line.trim_start().starts_with('1'), "session count: {line}");

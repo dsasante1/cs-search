@@ -246,6 +246,11 @@ generated fzf arguments are asserted on directly, and the commands its key
 bindings invoke (`__rows`, `__toggle`, `__header`) are exercised as ordinary
 subcommands, including the toggle-then-reload loop a keypress performs.
 
+The synthetic corpus carries a third session holding what the first two
+predate — a git branch, a generated title, tool calls naming files, and a usage
+block — so the older tests keep counting what they were written to count while
+the newer ones have something to read.
+
 The prefilter's invariant — that it may waste work but must never drop a line
 whose decoded text matches — is checked twice over: as a property test across
 texts containing quotes, backslashes, tabs, newlines and unicode, and end-to-end
