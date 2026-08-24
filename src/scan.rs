@@ -170,6 +170,18 @@ pub fn search(opts: &Opts, re: &Regex) -> Hits {
                     let before = rows.len();
                     scan_file(&path, ctx, &mut rows);
                     if rows.len() > before {
+                        // The project is a property of the session, not of the
+                        // record that happened to match: a turn taken after a
+                        // `cd` into a subdirectory belongs to the same project
+                        // as the rest. Resolved here, once, and only for files
+                        // that produced something — the prefilter skips most
+                        // lines outright, so no record is guaranteed to have
+                        // been parsed with the session's opening cwd on it.
+                        if let Some(label) = crate::projects::label(&path) {
+                            for row in &mut rows[before..] {
+                                row.project.clone_from(&label);
+                            }
+                        }
                         files.push(path);
                     }
                 }

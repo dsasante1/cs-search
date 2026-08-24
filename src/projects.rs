@@ -21,6 +21,25 @@ use std::time::SystemTime;
 /// enough slack for one that starts with something else.
 const SCAN_LINES: usize = 50;
 
+/// The name a session's messages are filed under: the basename of the working
+/// directory the session *started* in.
+///
+/// Every record carries its own cwd, and a session that `cd`s while it runs
+/// writes several. Labelling each message by its own record made
+/// `dashqard-customer-backend-api/migrations/sqls` report itself as a project
+/// called `sqls`, so `cs stats -P dashqard` answered "5 projects" and named
+/// four that `cs projects` — the list that exists to say what `-P` takes —
+/// has never heard of. A session belongs to one project: the one it opened in.
+pub fn label(path: &Path) -> Option<String> {
+    let cwd = describe(path)?.0;
+    let name = cwd.rsplit('/').next().unwrap_or("");
+    (!name.is_empty()).then(|| name.to_owned())
+}
+
+/// The label to print when the transcript will not say: keeps a row visible
+/// rather than dropping it for want of a name.
+pub const UNKNOWN: &str = "?";
+
 pub struct Project {
     pub cwd: String,
     pub sessions: usize,

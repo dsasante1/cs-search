@@ -125,6 +125,8 @@ pub fn collect(opts: &Opts) -> Stats {
 
 fn read(path: &Path, opts: &Opts, into: &mut Stats) {
     let Ok(fh) = File::open(path) else { return };
+    // One label for the whole transcript: see `projects::label`.
+    let project = crate::projects::label(path).unwrap_or_else(|| crate::projects::UNKNOWN.into());
     for line in BufReader::with_capacity(1 << 20, fh).lines().map_while(Result::ok) {
         let Ok(v) = serde_json::from_str::<Value>(&line) else {
             continue;
@@ -147,11 +149,7 @@ fn read(path: &Path, opts: &Opts, into: &mut Stats) {
         }
 
         into.sessions.insert(r.session_id().to_owned());
-        let project = r.cwd().rsplit('/').next().unwrap_or("?");
-        *into
-            .projects
-            .entry(if project.is_empty() { "?" } else { project }.to_owned())
-            .or_default() += 1;
+        *into.projects.entry(project.clone()).or_default() += 1;
         span(&mut into.first, &mut into.last, dates::day_of(r.timestamp()));
 
         if r.kind() == "user" {

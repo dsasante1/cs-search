@@ -13,6 +13,7 @@ const SID_A: &str = "aaaaaaaa-1111-4444-8888-aaaaaaaaaaaa";
 const SID_B: &str = "bbbbbbbb-2222-4444-8888-bbbbbbbbbbbb";
 const SID_C: &str = "cccccccc-3333-4444-8888-cccccccccccc";
 const SID_D: &str = "dddddddd-4444-4444-8888-dddddddddddd";
+const SID_E: &str = "eeeeeeee-5555-4444-8888-eeeeeeeeeeee";
 
 /// A throwaway `CLAUDE_HOME` that deletes itself when the test ends.
 struct Corpus {
@@ -626,6 +627,53 @@ fn chrono_quotes_the_line_that_actually_came_first() {
     let r = c.run(&["sameminute", "--chrono"]);
     let first = r.lines()[0].to_owned();
     assert!(first.contains("what breaks"), "{first}");
+}
+
+/// A session that `cd`s into a subdirectory is still one session in one
+/// project. Labelling each message by its own record's cwd invented projects —
+/// `dashqard/migrations/sqls` counted as a project named `sqls` — that
+/// `cs projects`, the list that exists to say what `-P` accepts, never showed.
+#[test]
+fn a_session_that_changes_directory_stays_in_one_project() {
+    let c = Corpus::new();
+    c.session(
+        "-home-u-epsilon",
+        SID_E,
+        &[
+            msg(
+                "user",
+                SID_E,
+                "/home/u/epsilon",
+                "2026-08-22T09:00:00Z",
+                json!("start the subdirwalk here"),
+            ),
+            msg(
+                "assistant",
+                SID_E,
+                "/home/u/epsilon/migrations/sqls",
+                "2026-08-22T09:01:00Z",
+                json!("subdirwalk continues below"),
+            ),
+        ],
+    );
+
+    // The search column, the two corpus reports, and the list of what `-P`
+    // takes all have to agree on the name.
+    let rows = c.run(&["subdirwalk"]);
+    for line in rows.lines() {
+        assert!(line.contains("epsilon"), "row should name the session's project: {line}");
+        assert!(!line.contains("sqls"), "a subdirectory is not a project: {line}");
+    }
+
+    let stats = c.run(&["stats", "-P", "epsilon"]);
+    assert!(stats.stdout.contains("1 project"), "{}", stats.stdout);
+    assert!(!stats.stdout.contains("sqls"), "{}", stats.stdout);
+
+    let activity = c.run(&["activity", "-P", "epsilon"]);
+    assert!(!activity.stdout.contains("sqls"), "{}", activity.stdout);
+
+    let projects = c.run(&["projects"]);
+    assert!(!projects.stdout.contains("/sqls"), "{}", projects.stdout);
 }
 
 /// A flag nobody recognises is a typo, and a typo that exits 0 is a wrong

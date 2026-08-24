@@ -122,6 +122,9 @@ pub fn collect(opts: &Opts) -> Activity {
 
 fn read(path: &Path, opts: &Opts, into: &mut Activity) {
     let Ok(fh) = File::open(path) else { return };
+    // Resolved once for the whole transcript: a session counts as one project
+    // however many directories it worked in. See `projects::label`.
+    let project = crate::projects::label(path).unwrap_or_else(|| crate::projects::UNKNOWN.into());
     for line in BufReader::with_capacity(1 << 20, fh).lines().map_while(Result::ok) {
         let Ok(v) = serde_json::from_str::<Value>(&line) else {
             continue;
@@ -146,15 +149,12 @@ fn read(path: &Path, opts: &Opts, into: &mut Activity) {
         if day.is_empty() {
             continue;
         }
-        let project = r.cwd().rsplit('/').next().unwrap_or("?");
-        let project = if project.is_empty() { "?" } else { project };
-
         let e = into.days.entry(day.to_owned()).or_default();
         e.messages += 1;
         e.sessions.insert(r.session_id().to_owned());
-        e.projects.insert(project.to_owned());
+        e.projects.insert(project.clone());
 
-        *into.projects.entry(project.to_owned()).or_default() += 1;
+        *into.projects.entry(project.clone()).or_default() += 1;
         into.sessions.insert(r.session_id().to_owned());
         into.messages += 1;
     }

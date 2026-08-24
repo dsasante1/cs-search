@@ -70,6 +70,8 @@ pub fn run(opts: &Opts, re: &Regex) -> Vec<FileHits> {
 
 fn collect(path: &Path, opts: &Opts, re: &Regex, out: &mut Vec<Touch>) {
     let Ok(fh) = File::open(path) else { return };
+    // One label for the whole transcript: see `projects::label`.
+    let project = crate::projects::label(path).unwrap_or_else(|| crate::projects::UNKNOWN.into());
     let mut reader = BufReader::with_capacity(1 << 20, fh);
     let mut buf = Vec::with_capacity(1 << 16);
 
@@ -105,7 +107,6 @@ fn collect(path: &Path, opts: &Opts, re: &Regex, out: &mut Vec<Touch>) {
         if !opts.until.is_empty() && dates::day_of(r.timestamp()) > opts.until.as_str() {
             continue;
         }
-        let project = r.cwd().rsplit('/').next().unwrap_or("?");
         for path in paths_in(&v) {
             if !re.is_match(&path) {
                 continue;
@@ -113,7 +114,7 @@ fn collect(path: &Path, opts: &Opts, re: &Regex, out: &mut Vec<Touch>) {
             out.push(Touch {
                 path,
                 cwd: r.cwd().to_owned(),
-                project: if project.is_empty() { "?" } else { project }.to_owned(),
+                project: project.clone(),
                 branch: r.git_branch().to_owned(),
                 ts: crate::record::take_chars(r.timestamp(), 16).replacen('T', " ", 1),
                 sid: crate::record::take_chars(r.session_id(), 8).to_owned(),
