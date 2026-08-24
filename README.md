@@ -324,7 +324,7 @@ avoids the work.
 cargo test
 ```
 
-293 tests, needing no network and no fixtures beyond what the suite creates and
+296 tests, needing no network and no fixtures beyond what the suite creates and
 cleans up itself:
 
 - **Unit tests** sit inline in each module and cover the pure helpers —
@@ -335,7 +335,8 @@ cleans up itself:
   both colour and plain form, which filters an empty result probes, which
   prompts a date cutoff keeps, date specs resolved against a fixed "today",
   which title in a file wins, how touches fold into files, the token arithmetic
-  behind `stats`, and the count-gutter alignment that survives having escape
+  behind `stats`, that every example in the help page uses a flag the help page
+  documents, and the count-gutter alignment that survives having escape
   sequences in the line.
 - **Integration tests** (`tests/cli.rs`) build a synthetic corpus in a temp
   directory, point the binary at it with `CLAUDE_HOME`, and assert on real

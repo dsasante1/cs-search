@@ -11,7 +11,7 @@ use std::ffi::OsString;
 pub const USAGE: &str = r#"cs — search your Claude Code history across every session and project
 
 USAGE
-  cs [opts] <pattern>       search all conversation text (regex, case-insensitive)
+  cs [opts] <pattern>       search all conversation text (regex, ignoring case)
   cs -p <pattern>           search only YOUR prompts (fast; uses history.jsonl)
   cs -i [opts] <pattern>    interactive picker (fzf); typing re-searches live
   cs show <session-id>      print one session as a readable transcript
@@ -32,7 +32,7 @@ SEARCH
   -r, --role <user|assistant>
   -s, --since <date>        only messages on/after this date
   -u, --until <date>        only messages on/before this date
-                            dates: YYYY-MM-DD, today, yesterday, 7d, 2w, last-week
+                            dates: YYYY-MM-DD, today, yesterday, 7d, last-week
   -b, --branch <substr>     only sessions on a git branch containing substr
   -t, --tools               also search tool calls and tool results (noisy)
   -T, --no-thinking         skip thinking blocks
@@ -59,13 +59,35 @@ PICKER KEYS
   alt-c clear filters
 
 EXAMPLES
-  cs 'stripe webhook'
-  cs -F 'useState('
-  cs -P dashqard -r user 'rate limit'
-  cs -s last-week --thread 'flaky test'
-  cs -b ui-overhaul -s 7d 'divider'
-  cs files 'settings/base.py'
-  cs -C 2 'ALTER TABLE'
+  Searching
+    cs 'stripe webhook'                  # the picker; rows when piped
+    cs -F 'useState('                    # literally, not as a regex
+    cs -P dashqard -r user 'rate limit'  # your own words, in one project
+    cs -t 'ALTER TABLE'                  # tool calls and their output too
+    cs -C 2 timeout --plain              # two lines either side, no picker
+
+  Narrowing
+    cs -s 7d 'flaky'                     # the last week
+    cs -s 2026-08-01 -u 2026-08-01 rls   # a single day, both ends
+    cs -b ui-overhaul 'divider'          # one git branch
+    cs --thread 'the fix'                # with the turns either side
+
+  Reading a session
+    cs sessions dashqard                 # by title, newest first
+    cs show 3f2a1b9c                     # as a transcript
+    cs show 3f2a1b9c -r user             # only the half you typed
+    cs export 3f2a1b9c --format md       # as a document, on stdout
+    cs resume 3f2a1b9c                   # reopen it in Claude Code
+
+  Across the corpus
+    cs projects                          # what -P can be given
+    cs files 'settings/base.py'          # which sessions touched a file
+    cs stats -P dashqard -s last-month   # models, tokens, cache
+
+  In a script
+    cs database --json | jq -r .session  # one object per match
+    cs -l migration                      # only the files that matched
+    eval "$(cs completions bash)"        # complete ids and projects
 "#;
 
 #[derive(Clone)]
@@ -465,6 +487,47 @@ mod tests {
             "--preview",
         ] {
             assert!(USAGE.contains(flag), "usage text is missing {flag}");
+        }
+    }
+
+    /// The examples exist to be copied, so a flag appearing in one that the
+    /// usage never describes is a typo waiting to be pasted into a shell.
+    #[test]
+    fn every_flag_shown_in_an_example_is_documented_above_it() {
+        let examples = USAGE.split("EXAMPLES").nth(1).expect("usage has examples");
+        let described = USAGE.split("EXAMPLES").next().unwrap();
+        for token in examples.split_whitespace() {
+            let flag = token.trim_end_matches(|c: char| !c.is_ascii_alphanumeric());
+            if !flag.starts_with('-') || flag.len() < 2 {
+                continue;
+            }
+            assert!(
+                described.contains(flag),
+                "{flag} is used in an example but never documented"
+            );
+        }
+    }
+
+    /// Every subcommand earns an example: the synopsis says a command exists,
+    /// an example says what it is for.
+    #[test]
+    fn every_subcommand_appears_in_an_example() {
+        let examples = USAGE.split("EXAMPLES").nth(1).expect("usage has examples");
+        for sub in ["show", "sessions", "files", "export", "projects", "stats", "resume", "completions"] {
+            assert!(examples.contains(sub), "no example uses {sub}");
+        }
+    }
+
+    /// A help page that wraps is harder to read than a shorter one, and the
+    /// example column is the part that grows sideways as flags are added.
+    #[test]
+    fn the_usage_fits_a_standard_terminal() {
+        for line in USAGE.lines() {
+            assert!(
+                line.chars().count() <= 80,
+                "{} columns: {line}",
+                line.chars().count()
+            );
         }
     }
 
