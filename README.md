@@ -12,7 +12,7 @@ cs -s last-week --thread 'flaky' # last week's matches, each with the turns arou
 cs -b ui-overhaul 'divider'      # only what happened on that git branch
 cs -s 7d -u yesterday 'deploy'   # a closed range; both ends inclusive
 cs -q -p 'cloud sql'             # only the prompts that asked something
-cs --chrono 'rate limit'         # one line per session, oldest first
+cs 'rate limit' --chrono         # one line per session, oldest first
 cs history 'django-celery'       # when a topic started, and when it stopped
 cs activity -s 30d               # where the month went, by day and project
 cs show 3f2a1b9c                 # one session as a readable transcript
@@ -37,20 +37,20 @@ always has, so anything built on that keeps working:
 
 ```sh
 cs database | wc -l              # unchanged: one line per match
-cs --plain database              # results instead of the picker
-cs --json database               # one JSON object per match, per line
+cs database --plain              # results instead of the picker
+cs database --json               # one JSON object per match, per line
 ```
 
-Flags go *before* the pattern, which ends option parsing as it did in the shell
-version. `cs database --json` therefore searches for `database` and never sees
-the flag — so rather than ignore it in silence, a search says what it did:
+Flags are read on either side of the pattern. The shell version stopped at the
+first bare word, so `cs database --json` searched for `database` and dropped the
+flag without saying so — including in four of the examples shipped with this
+program. Two bare words are now an error rather than the first one and a
+silence:
 
 ```console
-$ cs database --json
---json came after the pattern, where flags are not read — put it before 'database'
+$ cs stripe webhook
+unexpected argument 'webhook' after the pattern 'stripe' — quote them if they are one pattern
 ```
-
-The subcommands are hand-parsed and take their flags on either side.
 
 Inside the picker, **typing runs the search again** rather than filtering the
 list you arrived with — fzf's own matching is switched off and every keystroke
@@ -428,7 +428,7 @@ $ cs history 'rate limiting'
 
 47 matches · 9 sessions · 3 projects
 
-$ cs --chrono 'rate limiting'
+$ cs 'rate limiting' --chrono
 ```
 
 **What else was about this.** Having found one session, `related` finds the
@@ -619,7 +619,7 @@ avoids the work.
 cargo test
 ```
 
-358 tests, needing no network and no fixtures beyond what the suite creates and
+359 tests, needing no network and no fixtures beyond what the suite creates and
 cleans up itself:
 
 - **Unit tests** sit inline in each module and cover the pure helpers —

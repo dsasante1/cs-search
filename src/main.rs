@@ -116,9 +116,6 @@ fn main() {
     if let Some(note) = note {
         eprintln!("{note}");
     }
-    if let Some(note) = cli::trailing_flag(&args, &opts.pattern) {
-        eprintln!("{note}");
-    }
 
     let rows = if opts.prompts {
         match prompts::run(&opts, &re) {
@@ -586,10 +583,6 @@ fn history_command(args: &[OsString]) -> i32 {
     if let Some(note) = note {
         eprintln!("{note}");
     }
-    // `--sessions` was taken out above, so it cannot be mistaken for one of these.
-    if let Some(note) = cli::trailing_flag(&rest, &opts.pattern) {
-        eprintln!("{note}");
-    }
 
     let rows = if opts.prompts {
         match prompts::run(&opts, &re) {
@@ -651,9 +644,6 @@ fn files_command(args: &[OsString]) -> i32 {
         }
     };
     if let Some(note) = note {
-        eprintln!("{note}");
-    }
-    if let Some(note) = cli::trailing_flag(args, &opts.pattern) {
         eprintln!("{note}");
     }
 

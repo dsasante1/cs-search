@@ -1634,15 +1634,14 @@ fn history_lists_the_sessions_when_asked_oldest_first() {
 }
 
 /// `--sessions` belongs to this command rather than to the search grammar, so
-/// it is taken out of the arguments before the shared parser sees them — which
-/// means it works on either side of the pattern.
+/// it is taken out of the arguments before the shared parser sees them.
 #[test]
 fn history_takes_sessions_on_either_side_of_the_pattern() {
     let c = Corpus::new();
     let before = c.run(&["history", "--sessions", "needle"]);
     let after = c.run(&["history", "needle", "--sessions"]);
     assert_eq!(before.stdout, after.stdout);
-    assert!(!after.stderr.contains("came after the pattern"), "{}", after.stderr);
+    assert_eq!(after.code, 0, "stderr: {}", after.stderr);
 }
 
 #[test]
@@ -1868,18 +1867,29 @@ fn stats_for_a_session_that_is_not_there_says_so() {
     assert!(r.stderr.contains("no session matching"), "{}", r.stderr);
 }
 
-/// The pattern ends option parsing, which is the documented grammar — but an
-/// argument that is quietly ignored is the thing this tool tries hardest not
-/// to have.
+/// The shell version read flags only up to the pattern, so `cs database --json`
+/// searched without the flag and said nothing about it.
 #[test]
-fn a_flag_written_after_the_pattern_is_reported() {
+fn a_flag_after_the_pattern_takes_effect() {
     let c = Corpus::new();
-    let r = c.run(&["needle", "--json"]);
-    assert!(r.stderr.contains("came after the pattern"), "{}", r.stderr);
-    assert!(r.stderr.contains("--json"), "{}", r.stderr);
-    // It still ran the search it was given.
-    assert_eq!(r.code, 0);
-    assert!(!c.run(&["--json", "needle"]).stderr.contains("came after"));
+    let after = c.run(&["needle", "--json"]);
+    assert_eq!(after.code, 0, "stderr: {}", after.stderr);
+    let before = c.run(&["--json", "needle"]);
+    assert_eq!(after.stdout, before.stdout, "either side, same search");
+
+    // And it is really JSON, not flat rows that happen to match.
+    let v: Value = serde_json::from_str(after.stdout.lines().next().unwrap()).unwrap();
+    assert_eq!(v["session"], "aaaaaaaa");
+}
+
+/// Two bare words used to search for the first and drop the second in silence.
+#[test]
+fn a_second_bare_word_is_refused_rather_than_ignored() {
+    let c = Corpus::new();
+    let r = c.run(&["beta", "needle"]);
+    assert_eq!(r.code, 2, "{}", r.stdout);
+    assert!(r.stderr.contains("unexpected argument"), "{}", r.stderr);
+    assert!(r.stderr.contains("quote them"), "{}", r.stderr);
 }
 
 /// `-P` and the date flags narrow a corpus. Handed one session, they can only

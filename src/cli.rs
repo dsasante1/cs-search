@@ -74,14 +74,14 @@ EXAMPLES
     cs -P dashqard -r user 'rate limit'  # your own words, in one project
     cs -p -q 'cloud sql'                 # what you asked, not what you told
     cs -t 'ALTER TABLE'                  # tool calls and their output too
-    cs -C 2 --plain timeout              # two lines either side, no picker
+    cs -C 2 timeout --plain              # two lines either side, no picker
 
   Narrowing
     cs -s 7d 'flaky'                     # the last week
     cs -s 2026-08-01 -u 2026-08-01 rls   # a single day, both ends
     cs -b ui-overhaul 'divider'          # one git branch
     cs --thread 'the fix'                # with the turns either side
-    cs --chrono 'rate limit'             # one line per session, oldest first
+    cs 'rate limit' --chrono             # one line per session, oldest first
 
   One session at a time
     cs sessions dashqard                 # by title, newest first
@@ -100,7 +100,7 @@ EXAMPLES
     cs stats -P dashqard -s last-month   # models, tokens, cache
 
   In a script
-    cs --json database | jq -r .session  # one object per match
+    cs database --json | jq -r .session  # one object per match
     cs -l migration                      # only the files that matched
     eval "$(cs completions bash)"        # complete ids and projects
 "#;
@@ -209,29 +209,6 @@ pub enum Parsed {
     Search(Box<Opts>),
 }
 
-/// A flag written *after* the pattern, if there is one.
-///
-/// The pattern ends option parsing, as it did in the shell version, so
-/// `cs database --json` searches for `database` and never sees `--json`. That
-/// is the documented grammar and worth keeping — but silently ignoring an
-/// argument is the one outcome this tool tries hardest not to have, so the
-/// caller is told. It is a note rather than an error: the search that ran is
-/// still a search the user asked for.
-pub fn trailing_flag(args: &[OsString], pattern: &str) -> Option<String> {
-    let mut after = false;
-    for a in args {
-        let s = a.to_str().unwrap_or("");
-        if after && s.starts_with('-') && s.chars().count() > 1 {
-            return Some(format!(
-                "{s} came after the pattern, where flags are not read — \
-                 put it before '{pattern}'"
-            ));
-        }
-        after |= s == pattern;
-    }
-    None
-}
-
 /// Take the value belonging to `flag`, reporting it the way the shell version did.
 fn value(p: &mut lexopt::Parser, flag: &str) -> Result<String, String> {
     p.value()
@@ -250,8 +227,11 @@ pub fn parse(args: &[OsString]) -> Result<Parsed, String> {
     let mut o = Opts::default();
     let mut p = lexopt::Parser::from_args(args.iter());
 
-    // Consume flags up to the first bare word, matching the original loop:
-    // the pattern ends option parsing, so anything after it is left alone.
+    // Flags are read wherever they appear. The shell version stopped at the
+    // first bare word, which meant `cs database --json` searched for `database`
+    // and dropped the flag without a word — including in four of this program's
+    // own documented examples. The pattern is still the first bare word; a
+    // second one is an error rather than something else silently ignored.
     loop {
         let arg = match p.next() {
             Ok(Some(a)) => a,
@@ -302,10 +282,17 @@ pub fn parse(args: &[OsString]) -> Result<Parsed, String> {
             Long("preview") => o.preview = value(&mut p, "--preview")?,
             Short('h') | Long("help") => return Ok(Parsed::Help),
             Value(v) => {
-                o.pattern = v.into_string().map_err(|v| {
+                let text = v.into_string().map_err(|v| {
                     format!("pattern is not valid UTF-8: {}", v.to_string_lossy())
                 })?;
-                break;
+                if !o.pattern.is_empty() {
+                    return Err(format!(
+                        "unexpected argument '{text}' after the pattern '{}' — \
+                         quote them if they are one pattern",
+                        o.pattern
+                    ));
+                }
+                o.pattern = text;
             }
             _ => return Err(format!("unknown option: {name}")),
         }
@@ -485,28 +472,35 @@ mod tests {
         assert_eq!(opts(&["-"]).pattern, "-");
     }
 
+    /// The shell version stopped reading flags at the pattern, so
+    /// `cs database --json` quietly searched without the flag — as four of the
+    /// examples shipped with this program did.
     #[test]
-    fn flags_after_the_pattern_are_left_alone() {
-        // The pattern ends option parsing, as in the shell version.
-        let o = opts(&["needle", "-t"]);
-        assert_eq!(o.pattern, "needle");
-        assert!(!o.tools);
+    fn flags_are_read_on_either_side_of_the_pattern() {
+        let after = opts(&["needle", "-t", "--json"]);
+        assert_eq!(after.pattern, "needle");
+        assert!(after.tools && after.json);
+
+        let before = opts(&["-t", "--json", "needle"]);
+        assert_eq!(before.pattern, "needle");
+        assert!(before.tools && before.json);
     }
 
+    /// Two bare words used to mean the first one and a silence. Whatever the
+    /// user meant, it was not that.
     #[test]
-    fn a_flag_after_the_pattern_is_reported_rather_than_dropped() {
-        let note = trailing_flag(&owned(&["needle", "--json"]), "needle").expect("a note");
-        assert!(note.contains("--json"), "{note}");
-        assert!(note.contains("put it before"), "{note}");
+    fn a_second_bare_word_is_an_error_not_an_argument_dropped() {
+        let e = err(&["stripe", "webhook"]);
+        assert!(e.contains("unexpected argument \'webhook\'"), "{e}");
+        assert!(e.contains("quote them"), "the fix, not just the complaint: {e}");
     }
 
+    /// A flag's own value is not a second pattern.
     #[test]
-    fn a_flag_before_the_pattern_needs_no_note() {
-        assert!(trailing_flag(&owned(&["--json", "-P", "app", "needle"]), "needle").is_none());
-        // The value of a flag is not the pattern, even when it reads like it.
-        assert!(trailing_flag(&owned(&["-P", "needle", "needle"]), "needle").is_none());
-        // A pattern that had to be introduced with -- is still the pattern.
-        assert!(trailing_flag(&owned(&["--", "-t"]), "-t").is_none());
+    fn a_flag_after_the_pattern_still_takes_its_value() {
+        let o = opts(&["needle", "-P", "dashqard", "-C", "2"]);
+        assert_eq!(o.project, "dashqard");
+        assert_eq!(o.before, 2);
     }
 
     #[test]
