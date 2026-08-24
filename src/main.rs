@@ -43,7 +43,18 @@ fn main() {
     match sub(0) {
         "show" => exit(show_command(&args)),
         "sessions" => {
-            let rows = sessions::run(sub(1), Opts::default().jobs);
+            let filter = sub(1);
+            let rows = sessions::run(filter, Opts::default().jobs);
+            // Every other listing says so when it comes back empty; staying
+            // silent here left a script unable to tell "no such session" from
+            // "found them, printed nothing".
+            if rows.is_empty() {
+                match filter {
+                    "" => eprintln!("no sessions"),
+                    f => eprintln!("no sessions matching '{f}'"),
+                }
+                exit(1);
+            }
             let stdout = std::io::stdout();
             let mut w = BufWriter::new(stdout.lock());
             output::print_flat(&mut w, &rows, output::is_tty(), None);

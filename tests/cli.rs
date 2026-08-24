@@ -600,6 +600,19 @@ fn a_flag_before_the_id_is_not_mistaken_for_one() {
     }
 }
 
+/// Every other listing says when it comes back empty. `sessions` printed
+/// nothing and exited 0, which a script cannot tell from success.
+#[test]
+fn sessions_says_when_it_finds_nothing() {
+    let c = Corpus::new();
+    let r = c.run(&["sessions", "nosuchsessionanywhere"]);
+    assert_eq!(r.code, 1, "{}", r.stdout);
+    assert!(r.stderr.contains("no sessions matching"), "{}", r.stderr);
+    assert!(r.stdout.trim().is_empty(), "nothing should be listed: {}", r.stdout);
+    // The unfiltered form still lists what is there.
+    assert_eq!(c.run(&["sessions"]).code, 0);
+}
+
 #[test]
 fn jobs_flag_does_not_change_results() {
     let c = Corpus::new();
