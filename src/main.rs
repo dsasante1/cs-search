@@ -2,6 +2,7 @@
 
 mod cli;
 mod dates;
+mod export;
 mod files;
 mod interactive;
 mod output;
@@ -47,6 +48,7 @@ fn main() {
         "projects" => exit(projects::run(sub(1), Opts::default().jobs)),
         "files" => exit(files_command(&args)),
         "stats" => exit(stats_command(&args)),
+        "export" => exit(export_command(&args)),
         "resume" => exit(resume::run(sub(1))),
         // Internal, and spelled so: these exist for the picker's key bindings to
         // call back into, and are not part of the CLI.
@@ -279,6 +281,42 @@ fn widenings(opts: &Opts, re: &Regex) -> Vec<(usize, String)> {
             (found > 0).then_some((found, flag))
         })
         .collect()
+}
+
+/// `cs export <id> [--format md|html|json] [-r user|assistant]`.
+///
+/// Hand-parsed for the same reason `show` is: it takes an id and a couple of
+/// flags of its own, and has never shared the search grammar.
+fn export_command(args: &[OsString]) -> i32 {
+    let mut id = String::new();
+    let mut role = String::new();
+    let mut format = export::Format::Markdown;
+    let mut rest = args.iter().skip(1);
+
+    while let Some(arg) = rest.next() {
+        match arg.to_str().unwrap_or("") {
+            "--format" | "-f" => {
+                let v = rest.next().and_then(|v| v.to_str()).unwrap_or("");
+                match export::Format::parse(v) {
+                    Ok(f) => format = f,
+                    Err(e) => {
+                        eprintln!("{e}");
+                        return 2;
+                    }
+                }
+            }
+            "--role" | "-r" => {
+                role = rest.next().and_then(|v| v.to_str()).unwrap_or("").to_owned();
+                if role != "user" && role != "assistant" {
+                    eprintln!("--role must be 'user' or 'assistant', got: {role}");
+                    return 2;
+                }
+            }
+            value if id.is_empty() => id = value.to_owned(),
+            _ => {}
+        }
+    }
+    export::run(&id, &role, format)
 }
 
 /// `cs stats [-P proj] [-b branch] [-s date] [-u date] [--prices f] [--json]`.

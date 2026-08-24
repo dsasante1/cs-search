@@ -38,12 +38,21 @@ pub struct ShowOpts {
 /// Who is speaking. The transcript's whole job is keeping the two apart, so the
 /// speaker is modelled rather than baked into a formatted string.
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum Who {
+pub enum Who {
     You,
     Cc,
 }
 
 impl Who {
+    /// The name this speaker goes by outside the transcript view, where a
+    /// three-character column is not the constraint.
+    pub fn name(self) -> &'static str {
+        match self {
+            Who::You => "user",
+            Who::Cc => "assistant",
+        }
+    }
+
     fn label(self) -> &'static str {
         match self {
             Who::You => "YOU",
@@ -268,7 +277,20 @@ fn window<'a>(
     (&chunks[from..], from, restated)
 }
 
-fn transcript(fh: File, role: &str) -> Vec<Chunk> {
+/// One speaker's turn: who, when, and what they said, unsplit.
+///
+/// The transcript view immediately breaks these into lines, because a divider
+/// and a body line are drawn differently; `export` wants them whole. Reading
+/// the file produces turns, and the view is built from them, so the two can
+/// never disagree about what a session contains.
+pub struct Turn {
+    pub who: Who,
+    pub ts: String,
+    pub text: String,
+}
+
+/// Read a transcript as turns, honouring the same role filter `show` takes.
+pub fn turns(fh: File, role: &str) -> Vec<Turn> {
     let mut out = Vec::new();
     for line in BufReader::with_capacity(1 << 20, fh).lines().map_while(Result::ok) {
         let Ok(v) = serde_json::from_str::<Value>(&line) else {
@@ -291,10 +313,18 @@ fn transcript(fh: File, role: &str) -> Vec<Chunk> {
             if text.is_empty() {
                 continue;
             }
-            out.push(Chunk::Text(String::new()));
-            out.push(Chunk::Turn { who, ts: ts.clone() });
-            out.extend(text.split('\n').map(|l| Chunk::Text(l.to_owned())));
+            out.push(Turn { who, ts: ts.clone(), text });
         }
+    }
+    out
+}
+
+fn transcript(fh: File, role: &str) -> Vec<Chunk> {
+    let mut out = Vec::new();
+    for t in turns(fh, role) {
+        out.push(Chunk::Text(String::new()));
+        out.push(Chunk::Turn { who: t.who, ts: t.ts });
+        out.extend(t.text.split('\n').map(|l| Chunk::Text(l.to_owned())));
     }
     out
 }

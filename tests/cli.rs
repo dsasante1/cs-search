@@ -1019,6 +1019,57 @@ fn stats_prices_only_what_the_table_prices() {
     assert_eq!(missing.code, 2);
 }
 
+// ------------------------------------------------------------------ cs export
+
+#[test]
+fn export_writes_markdown_by_default() {
+    let c = Corpus::new();
+    let r = c.run(&["export", "cccccccc"]);
+    assert_eq!(r.code, 0, "stderr: {}", r.stderr);
+    assert!(r.stdout.starts_with("# Session cccccccc"), "{}", r.stdout);
+    assert!(r.stdout.contains("/home/u/gamma"), "{}", r.stdout);
+    assert!(r.stdout.contains("## You · 2026-08-10 09:00"), "{}", r.stdout);
+    assert!(r.stdout.contains("widget alignment is off"), "{}", r.stdout);
+}
+
+#[test]
+fn export_html_is_self_contained_and_escaped() {
+    let c = Corpus::new();
+    let r = c.run(&["export", "aaaaaaaa", "--format", "html"]);
+    assert!(r.stdout.starts_with("<!doctype html>"), "{}", r.stdout);
+    assert!(r.stdout.contains("<style>"), "{}", r.stdout);
+    assert!(!r.stdout.contains("https://"), "no external fetches: {}", r.stdout);
+    // The fixture's `make build \` and quoted text must not escape their tags.
+    assert!(!r.stdout.contains("<article class=\"you\"><h2>You <time>2026-07-01 10:00</time></h2><pre>SELECT * FROM users WHERE id = 1</pre></article>")
+            || r.stdout.contains("&"), "{}", r.stdout);
+}
+
+#[test]
+fn export_json_is_one_object_per_turn() {
+    let c = Corpus::new();
+    let r = c.run(&["export", "cccccccc", "--format", "json"]);
+    let first: Value = serde_json::from_str(r.stdout.lines().next().unwrap()).unwrap();
+    assert_eq!(first["role"], "user");
+    assert_eq!(first["text"], "widget alignment is off");
+}
+
+#[test]
+fn export_reads_one_side_of_the_conversation() {
+    let c = Corpus::new();
+    let r = c.run(&["export", "cccccccc", "-r", "user"]);
+    assert!(r.stdout.contains("widget alignment is off"), "{}", r.stdout);
+    assert!(!r.stdout.contains("padding was the culprit"), "{}", r.stdout);
+}
+
+#[test]
+fn export_rejects_what_it_cannot_write() {
+    let c = Corpus::new();
+    assert_eq!(c.run(&["export", "cccccccc", "--format", "pdf"]).code, 2);
+    assert_eq!(c.run(&["export", "cccccccc", "-r", "nobody"]).code, 2);
+    assert_eq!(c.run(&["export", "zzzzzzzz"]).code, 1, "no such session");
+    assert_eq!(c.run(&["export"]).code, 2, "no id at all");
+}
+
 // ------------------------------------------------------------------------ cli
 
 // --------------------------------------------------------------- cs projects

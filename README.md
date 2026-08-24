@@ -14,6 +14,7 @@ cs show 3f2a1b9c -r user         # only the half of it you typed
 cs sessions dashqard             # sessions newest-first, by title
 cs files 'settings/base.py'      # which sessions touched a file, and when
 cs stats -P dashqard             # models, tokens and cache use
+cs export 3f2a1b9c --format md   # one session as a document
 cs projects                      # what -P can be given
 cs resume 3f2a1b9c               # reopen that session in Claude Code
 ```
@@ -209,6 +210,16 @@ and a number that is quietly wrong is worse than no number — so `--prices
 <file>` takes a table of dollars per million tokens from you, and a model
 missing from it is named rather than billed at zero.
 
+### `cs export` — a session as a document
+
+`show` renders for a terminal: ANSI, a rule sized to the window, a pager. None
+of that survives being redirected into a file or attached to an issue.
+`cs export <id> --format md|html|json` is the same transcript with the terminal
+taken out of it — the HTML is self-contained, readable in either colour scheme,
+and escaped, which matters because a transcript is full of markup. Both read the
+file through one function, so they can never disagree about what a session
+contains.
+
 ## Install
 
 ```sh
@@ -302,7 +313,7 @@ avoids the work.
 cargo test
 ```
 
-273 tests, needing no network and no fixtures beyond what the suite creates and
+284 tests, needing no network and no fixtures beyond what the suite creates and
 cleans up itself:
 
 - **Unit tests** sit inline in each module and cover the pure helpers —
@@ -351,6 +362,7 @@ makes the suite fail.
 | `src/sessions.rs` | `cs sessions` |
 | `src/projects.rs` | `cs projects` |
 | `src/show.rs` | `cs show`: speaker dividers, role filter, jump-to-match, pager |
+| `src/export.rs` | `cs export`: markdown, self-contained HTML, JSONL |
 | `src/files.rs` | `cs files`: paths that were acted on, folded per file |
 | `src/stats.rs` | `cs stats`: models, tokens, cache, optional priced cost |
 | `src/resume.rs` | `cs resume` |

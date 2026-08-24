@@ -18,6 +18,7 @@ USAGE
                             -r user|assistant reads one side of it only
   cs sessions [substr]      list sessions newest-first, by title
   cs files <pattern>        which files were edited or read, and when
+  cs export <session-id>    write one session out: --format md|html|json
   cs projects [substr]      list projects with session counts
   cs stats [-P proj]        models, tokens and cache use across the corpus
   cs resume <session-id>    reopen that session in Claude Code
