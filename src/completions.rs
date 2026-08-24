@@ -198,7 +198,7 @@ fn fish() -> String {
     out.push_str("\nend\n\n");
 
     for (name, help) in SUBCOMMAND_HELP {
-        out.push_str(&format!("complete -c cs -n __cs_no_sub -a {name} -d '{help}'\n"));
+        out.push_str(&format!("complete -c cs -n __cs_no_sub -a {name} -d {}\n", fish_quote(help)));
     }
     out.push_str(
         "\ncomplete -c cs -n '__fish_seen_subcommand_from show resume export handoff related stats' -f -a '(__cs_sessions)'\n\
@@ -225,6 +225,15 @@ fn fish() -> String {
     out
 }
 
+/// A fish single-quoted string, with the two characters fish treats specially
+/// inside one escaped. Descriptions are English prose and one of them holds an
+/// apostrophe, which without this closed the string and made the whole script
+/// unparseable — fish abandons the file at the first syntax error, so a single
+/// unescaped quote cost every completion, not just its own.
+fn fish_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\\', r"\\").replace('\'', r"\'"))
+}
+
 /// The relative date words worth offering; the absolute form cannot be
 /// completed and does not need to be.
 const DATE_WORDS: &str = "today yesterday last-week last-month 7d 14d 2w 3m 1y";
@@ -247,6 +256,7 @@ const SUBCOMMAND_HELP: &[(&str, &str)] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
 
     fn script(shell: &str) -> String {
         let mut buf: Vec<u8> = Vec::new();
@@ -300,6 +310,51 @@ mod tests {
             assert!(s.contains("last-week"), "{shell} should suggest relative dates");
             assert!(s.contains("yesterday"), "{shell}");
         }
+    }
+
+    /// The scripts are generated text handed straight to a shell, so the thing
+    /// worth checking is that the shell can read them at all. A description
+    /// holding an apostrophe once closed fish's quoting early and cost every
+    /// completion in the file, which no amount of "does it mention `related`"
+    /// would have caught.
+    #[test]
+    fn every_script_parses_in_the_shell_it_is_for() {
+        for (shell, args) in
+            [("bash", &["-n"][..]), ("zsh", &["-n"][..]), ("fish", &["--no-config", "-n"][..])]
+        {
+            let Some(path) = write_temp(&script(shell), shell) else { continue };
+            let Ok(out) = Command::new(shell).args(args).arg(&path).output() else {
+                let _ = std::fs::remove_file(&path);
+                continue; // shell not installed: nothing to check against
+            };
+            let _ = std::fs::remove_file(&path);
+            assert!(
+                out.status.success(),
+                "{shell} cannot parse its own completion script:\n{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+    }
+
+    /// The same check without needing a shell installed, so CI catches an
+    /// unescaped quote even where only one of the three is present.
+    #[test]
+    fn single_quotes_stay_balanced_on_every_line() {
+        for shell in ["bash", "zsh", "fish"] {
+            for (n, line) in script(shell).lines().enumerate() {
+                // An escaped quote is not a delimiter, so it cannot unbalance
+                // the line; count only the ones that open or close a string.
+                let bare = line.replace(r"\'", "").replace(r"'\''", "").matches('\'').count();
+                assert_eq!(bare % 2, 0, "{shell} line {}: {line}", n + 1);
+            }
+        }
+    }
+
+    fn write_temp(body: &str, shell: &str) -> Option<std::path::PathBuf> {
+        let path =
+            std::env::temp_dir().join(format!("cs-comp-test-{}.{shell}", std::process::id()));
+        std::fs::write(&path, body).ok()?;
+        Some(path)
     }
 
     /// Each script says how to install itself: printed to a terminal with no
