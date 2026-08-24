@@ -107,6 +107,9 @@ pub fn stderr_is_tty() -> bool {
 pub struct Row {
     pub ts: String,
     pub project: String,
+    /// The git branch the session was on. Carried on every row, but kept out of
+    /// the flat columns: those are the interface scripts parse.
+    pub branch: String,
     pub role: String,
     pub sid: String,
     pub text: String,
@@ -155,6 +158,7 @@ impl Row {
         json!({
             "ts": self.ts,
             "project": self.project,
+            "branch": self.branch,
             "role": self.role,
             "session": self.sid,
             "text": self.text,
@@ -296,8 +300,9 @@ pub fn print_grouped(w: &mut impl Write, rows: &[Row], color: bool, hl: Option<&
         let plural = if g.len() == 1 { "match" } else { "matches" };
         let _ = writeln!(
             w,
-            "{d}▸{z} {b}{c}{}{z} {d}{}{z}  {d}{}{z}{}{d}{} {plural}{z}",
+            "{d}▸{z} {b}{c}{}{z}{d}{}{z} {d}{}{z}  {d}{}{z}{}{d}{} {plural}{z}",
             head.project,
+            branch_tag(head),
             head.sid,
             head.ts,
             " ".repeat(gutter.saturating_sub(heading_width(head))),
@@ -336,10 +341,30 @@ pub fn print_json(w: &mut impl Write, rows: &[Row]) {
     }
 }
 
+/// The branch a session was on, as it rides beside the project name. Empty for
+/// a session outside a repository, and for the prompt history, which does not
+/// record one.
+fn branch_tag(head: &Row) -> String {
+    if head.branch.is_empty() {
+        String::new()
+    } else {
+        format!("@{}", elide(&head.branch, MAX_BRANCH))
+    }
+}
+
+/// A long branch name would push the whole heading grid sideways, and the ticket
+/// number that makes one long is rarely the half you need to recognise it.
+const MAX_BRANCH: usize = 18;
+
 /// Printed width of a heading up to where its count begins.
 fn heading_width(head: &Row) -> usize {
-    // "▸ " + project + " " + sid + "  " + ts
-    2 + head.project.chars().count() + 1 + head.sid.chars().count() + 2 + head.ts.chars().count()
+    // "▸ " + project + branch + " " + sid + "  " + ts
+    2 + head.project.chars().count()
+        + branch_tag(head).chars().count()
+        + 1
+        + head.sid.chars().count()
+        + 2
+        + head.ts.chars().count()
 }
 
 fn group_by_session(rows: &[Row]) -> Vec<Vec<&Row>> {

@@ -7,9 +7,14 @@ cs 'stripe webhook'              # opens the picker on a terminal; prints rows w
 cs -F 'useState('                # match the pattern literally, not as a regex
 cs -p 'rate limit'               # only your own prompts (history.jsonl)
 cs -C 2 'ALTER TABLE'            # with two lines of surrounding context
+cs -s last-week --thread 'flaky' # last week's matches, each with the turns around it
+cs -b ui-overhaul 'divider'      # only what happened on that git branch
 cs show 3f2a1b9c                 # one session as a readable transcript
 cs show 3f2a1b9c -r user         # only the half of it you typed
-cs sessions dashqard             # sessions newest-first, with their opening prompt
+cs sessions dashqard             # sessions newest-first, by title
+cs files 'settings/base.py'      # which sessions touched a file, and when
+cs stats -P dashqard             # models, tokens and cache use
+cs export 3f2a1b9c --format md   # one session as a document
 cs projects                      # what -P can be given
 cs resume 3f2a1b9c               # reopen that session in Claude Code
 ```
@@ -38,6 +43,7 @@ are keys rather than flags you have to quit and retype:
 | `alt-enter` | resume the session in Claude Code |
 | `alt-t` / `alt-h` / `alt-s` | tool blocks · thinking blocks · subagent messages |
 | `alt-r` | cycle role: any → user → assistant |
+| `alt-x` | thread context: the turns either side of the match |
 | `alt-p` | filter to the project under the cursor, or clear it |
 | `alt-c` | clear every filter |
 
@@ -114,6 +120,116 @@ rows. Two things guard against it — `-F` matches literally, and a pattern that
 returns a very large result set while containing metacharacters says so on
 stderr. A pattern that is not valid regex at all (`useState(`) is retried as a
 literal rather than rejected, and the substitution is reported.
+
+## Narrowing
+
+`-P` takes a substring of the project directory. Two filters sit beside it.
+
+`-b/--branch` matches the git branch the session was on, recorded per line
+rather than per session, so a session that switched branches answers for each
+half separately. The branch also rides beside the project in grouped output:
+
+```
+▸ cs@ui-overhaul 623fcafd  2026-08-20 01:01  4 matches
+```
+
+Flat output is deliberately unchanged — those columns are what scripts parse —
+so `--json` is where a program reads the branch.
+
+`-s/--since` and `-u/--until` bound a range from either end, and neither needs a
+date you have to look up:
+
+```sh
+cs -s 7d 'timeout'               # the last week
+cs -s yesterday -t 'migrate'
+cs -s 2026-08-01 -u 2026-08-01 'ALTER TABLE'   # one day, both ends inclusive
+```
+
+`today`, `yesterday`, `last-week`, `last-month`, `Nd`, `Nw`, `Nm`, `Ny` and a
+plain `YYYY-MM-DD` are all accepted; months step by calendar, so `1m` from the
+31st lands on the last day of the previous month rather than somewhere in the
+middle of it. A spec that names no real day is rejected at parse time rather
+than quietly matching nothing — `-u 2026-02-30` is an error, not an empty result.
+
+### Context that crosses records
+
+`-C/-A/-B` widen a match within the message it sits in, which for prose is
+usually more of the same paragraph. `--thread` instead shows the turns either
+side of it — the prompt that produced the reply, the reply the prompt drew:
+
+```
+2026-08-24 14:19 cs  asst d943d496  export is that renderer minus the pager
+                                    ↑ you   can we get a session out as markdown?
+                                    ↓ you   create a branch and implement it
+```
+
+Those are different records, reachable only through `parentUuid`, so this reads
+the chain rather than the block: every conversation record is decoded, prefilter
+or not, because which turns are neighbours is not knowable until the chain is
+built. On a 302 MB corpus that is 0.51s against 0.21s, which is why it is a flag
+and not the default. `alt-x` toggles it inside the picker.
+
+## Beyond search
+
+### `cs files` — the axis that is not text
+
+```
+   9  2026-08-23 13:09  anasset-api    d8ec79b4  config/settings/base.py
+  53  2026-08-20 11:58  unicare_ho…t   ca98bc25  config/settings/base.py
+```
+
+Touches, when it was last one, the session to open, and the path relative to the
+project it belongs to. The filename is in the transcript either way, but only
+inside tool blocks, where `-t` finds it flattened into a wall of JSON alongside
+whole file contents — technically a hit, practically unreadable. Reading the
+block structurally instead makes "when did I last touch this, and in which
+session" answerable. Paths are read by key (`file_path`, `notebook_path`) rather
+than by tool name, so a tool added later is seen without a change here. It takes
+the same `-P`, `-b`, `-s`, `-u` and `-F` a search does.
+
+### `cs stats` — what the corpus is made of
+
+Every assistant record carries a model and a usage block, and nothing here had
+ever read them:
+
+```
+181 sessions · 78,379 messages · 45 projects
+2026-07-10 → 2026-08-24
+
+MODEL           replies    input   output    cached
+claude-opus-5    46,608     288K    40.9M      9.5B
+
+TOKENS
+  input            389K
+  cache read      10.1B
+  from cache      97.3%
+```
+
+Cost is not built in. Prices change, a hardcoded table would go stale silently,
+and a number that is quietly wrong is worse than no number — so `--prices
+<file>` takes a table of dollars per million tokens from you, and a model
+missing from it is named rather than billed at zero.
+
+### `cs export` — a session as a document
+
+`show` renders for a terminal: ANSI, a rule sized to the window, a pager. None
+of that survives being redirected into a file or attached to an issue.
+`cs export <id> --format md|html|json` is the same transcript with the terminal
+taken out of it — the HTML is self-contained, readable in either colour scheme,
+and escaped, which matters because a transcript is full of markup. Both read the
+file through one function, so they can never disagree about what a session
+contains.
+
+### `cs completions`
+
+```sh
+eval "$(cs completions bash)"    # or zsh; fish wants `cs completions fish | source`
+```
+
+Session ids are eight hex characters, so `cs show` was really `cs sessions |
+grep` followed by a copy and a paste. Ids and project names are completed by
+shelling out to `cs` itself rather than from a cache — the corpus changes every
+time you use Claude Code, and `sessions` answers in 0.05s.
 
 ## Install
 
@@ -208,7 +324,7 @@ avoids the work.
 cargo test
 ```
 
-215 tests, needing no network and no fixtures beyond what the suite creates and
+296 tests, needing no network and no fixtures beyond what the suite creates and
 cleans up itself:
 
 - **Unit tests** sit inline in each module and cover the pure helpers —
@@ -217,8 +333,11 @@ cleans up itself:
   middle-elision, session grouping, the picker's state transitions, the fzf
   command line the picker is launched with, the transcript divider's geometry in
   both colour and plain form, which filters an empty result probes, which
-  prompts a date cutoff keeps, and the count-gutter alignment that survives
-  having escape sequences in the line.
+  prompts a date cutoff keeps, date specs resolved against a fixed "today",
+  which title in a file wins, how touches fold into files, the token arithmetic
+  behind `stats`, that every example in the help page uses a flag the help page
+  documents, and the count-gutter alignment that survives having escape
+  sequences in the line.
 - **Integration tests** (`tests/cli.rs`) build a synthetic corpus in a temp
   directory, point the binary at it with `CLAUDE_HOME`, and assert on real
   output. The fixture is hand-written, so the suite carries no personal data.
@@ -227,6 +346,11 @@ The picker itself is covered in two halves rather than driven end-to-end: the
 generated fzf arguments are asserted on directly, and the commands its key
 bindings invoke (`__rows`, `__toggle`, `__header`) are exercised as ordinary
 subcommands, including the toggle-then-reload loop a keypress performs.
+
+The synthetic corpus carries a third session holding what the first two
+predate — a git branch, a generated title, tool calls naming files, and a usage
+block — so the older tests keep counting what they were written to count while
+the newer ones have something to read.
 
 The prefilter's invariant — that it may waste work but must never drop a line
 whose decoded text matches — is checked twice over: as a property test across
@@ -243,12 +367,17 @@ makes the suite fail.
 | | |
 |---|---|
 | `src/main.rs` | CLI dispatch |
+| `src/dates.rs` | `--since` / `--until` specs, absolute and relative |
 | `src/cli.rs` | argument parsing, usage text |
 | `src/scan.rs` | parallel search engine and the prefilter |
 | `src/record.rs` | transcript record model, block flattening |
 | `src/sessions.rs` | `cs sessions` |
 | `src/projects.rs` | `cs projects` |
 | `src/show.rs` | `cs show`: speaker dividers, role filter, jump-to-match, pager |
+| `src/completions.rs` | `cs completions`: bash, zsh and fish scripts |
+| `src/export.rs` | `cs export`: markdown, self-contained HTML, JSONL |
+| `src/files.rs` | `cs files`: paths that were acted on, folded per file |
+| `src/stats.rs` | `cs stats`: models, tokens, cache, optional priced cost |
 | `src/resume.rs` | `cs resume` |
 | `src/prompts.rs` | `cs -p` |
 | `src/interactive.rs` | the picker: the fzf command line and what comes back |

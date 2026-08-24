@@ -11,14 +11,18 @@ use std::ffi::OsString;
 pub const USAGE: &str = r#"cs — search your Claude Code history across every session and project
 
 USAGE
-  cs [opts] <pattern>       search all conversation text (regex, case-insensitive)
+  cs [opts] <pattern>       search all conversation text (regex, ignoring case)
   cs -p <pattern>           search only YOUR prompts (fast; uses history.jsonl)
   cs -i [opts] <pattern>    interactive picker (fzf); typing re-searches live
   cs show <session-id>      print one session as a readable transcript
                             -r user|assistant reads one side of it only
-  cs sessions [substr]      list sessions newest-first, with their first prompt
+  cs sessions [substr]      list sessions newest-first, by title
+  cs files <pattern>        which files were edited or read, and when
+  cs export <session-id>    write one session out: --format md|html|json
   cs projects [substr]      list projects with session counts
+  cs stats [-P proj]        models, tokens and cache use across the corpus
   cs resume <session-id>    reopen that session in Claude Code
+  cs completions <shell>    completion script for bash, zsh or fish
 
   On a terminal, a plain search opens the picker. Piped, it prints rows.
 
@@ -26,12 +30,16 @@ SEARCH
   -F, --fixed               match the pattern literally, not as a regex
   -P, --project <substr>    only sessions whose cwd contains substr
   -r, --role <user|assistant>
-  -s, --since <YYYY-MM-DD>  only messages on/after this date
+  -s, --since <date>        only messages on/after this date
+  -u, --until <date>        only messages on/before this date
+                            dates: YYYY-MM-DD, today, yesterday, 7d, last-week
+  -b, --branch <substr>     only sessions on a git branch containing substr
   -t, --tools               also search tool calls and tool results (noisy)
   -T, --no-thinking         skip thinking blocks
   -n, --no-sub              skip subagent (sidechain) messages
 
 OUTPUT
+      --thread              show the turns either side of the match, not lines
   -C, --context <n>         show n lines either side of each match
   -A, --after <n>           show n lines after each match
   -B, --before <n>          show n lines before each match
@@ -47,14 +55,39 @@ OUTPUT
 
 PICKER KEYS
   enter open · alt-enter resume · alt-t tools · alt-h thinking
-  alt-s subagents · alt-r role · alt-p this project · alt-c clear filters
+  alt-s subagents · alt-r role · alt-x thread · alt-p this project
+  alt-c clear filters
 
 EXAMPLES
-  cs 'stripe webhook'
-  cs -F 'useState('
-  cs -P dashqard -r user 'rate limit'
-  cs -s 2026-07-01 -t 'ALTER TABLE'
-  cs -C 2 'ALTER TABLE'
+  Searching
+    cs 'stripe webhook'                  # the picker; rows when piped
+    cs -F 'useState('                    # literally, not as a regex
+    cs -P dashqard -r user 'rate limit'  # your own words, in one project
+    cs -t 'ALTER TABLE'                  # tool calls and their output too
+    cs -C 2 timeout --plain              # two lines either side, no picker
+
+  Narrowing
+    cs -s 7d 'flaky'                     # the last week
+    cs -s 2026-08-01 -u 2026-08-01 rls   # a single day, both ends
+    cs -b ui-overhaul 'divider'          # one git branch
+    cs --thread 'the fix'                # with the turns either side
+
+  Reading a session
+    cs sessions dashqard                 # by title, newest first
+    cs show 3f2a1b9c                     # as a transcript
+    cs show 3f2a1b9c -r user             # only the half you typed
+    cs export 3f2a1b9c --format md       # as a document, on stdout
+    cs resume 3f2a1b9c                   # reopen it in Claude Code
+
+  Across the corpus
+    cs projects                          # what -P can be given
+    cs files 'settings/base.py'          # which sessions touched a file
+    cs stats -P dashqard -s last-month   # models, tokens, cache
+
+  In a script
+    cs database --json | jq -r .session  # one object per match
+    cs -l migration                      # only the files that matched
+    eval "$(cs completions bash)"        # complete ids and projects
 "#;
 
 #[derive(Clone)]
@@ -64,6 +97,10 @@ pub struct Opts {
     pub tools: bool,
     pub thinking: bool,
     pub since: String,
+    /// `--until`: the far end of the range `--since` opens.
+    pub until: String,
+    /// `-b`: substring of the git branch the session was on.
+    pub branch: String,
     pub chars: usize,
     pub files_only: bool,
     pub no_sub: bool,
@@ -81,6 +118,9 @@ pub struct Opts {
     pub preview: String,
     pub before: usize,
     pub after: usize,
+    /// `--thread`: surround a match with the turns either side of it rather
+    /// than with more lines of the message it sits in.
+    pub thread: bool,
 }
 
 impl Default for Opts {
@@ -91,6 +131,8 @@ impl Default for Opts {
             tools: false,
             thinking: true,
             since: String::new(),
+            until: String::new(),
+            branch: String::new(),
             chars: 240,
             files_only: false,
             no_sub: false,
@@ -107,6 +149,7 @@ impl Default for Opts {
             preview: "right".into(),
             before: 0,
             after: 0,
+            thread: false,
         }
     }
 }
@@ -171,7 +214,14 @@ pub fn parse(args: &[OsString]) -> Result<Parsed, String> {
         match arg {
             Short('P') | Long("project") => o.project = value(&mut p, &name)?.to_lowercase(),
             Short('r') | Long("role") => o.role = value(&mut p, &name)?,
-            Short('s') | Long("since") => o.since = value(&mut p, &name)?,
+            Short('s') | Long("since") => {
+                o.since = crate::dates::resolve(&value(&mut p, &name)?)
+                    .map_err(|e| format!("{name}: {e}"))?
+            }
+            Short('u') | Long("until") => {
+                o.until = crate::dates::resolve(&value(&mut p, &name)?)
+                    .map_err(|e| format!("{name}: {e}"))?
+            }
             Short('c') | Long("chars") => o.chars = count(&mut p, "--chars")?,
             Short('j') | Long("jobs") => o.jobs = count(&mut p, "--jobs")?.max(1),
             Short('C') | Long("context") => {
@@ -181,6 +231,7 @@ pub fn parse(args: &[OsString]) -> Result<Parsed, String> {
             }
             Short('A') | Long("after") => o.after = count(&mut p, "--after")?,
             Short('B') | Long("before") => o.before = count(&mut p, "--before")?,
+            Short('b') | Long("branch") => o.branch = value(&mut p, &name)?.to_lowercase(),
             Short('t') | Long("tools") => o.tools = true,
             Short('T') | Long("no-thinking") => o.thinking = false,
             Short('l') | Long("files") => o.files_only = true,
@@ -192,6 +243,7 @@ pub fn parse(args: &[OsString]) -> Result<Parsed, String> {
             Long("group") => o.grouping = Grouping::Always,
             Long("no-group") => o.grouping = Grouping::Never,
             Long("json") => o.json = true,
+            Long("thread") => o.thread = true,
             Long("preview") => o.preview = value(&mut p, "--preview")?,
             Short('h') | Long("help") => return Ok(Parsed::Help),
             Value(v) => {
@@ -435,6 +487,47 @@ mod tests {
             "--preview",
         ] {
             assert!(USAGE.contains(flag), "usage text is missing {flag}");
+        }
+    }
+
+    /// The examples exist to be copied, so a flag appearing in one that the
+    /// usage never describes is a typo waiting to be pasted into a shell.
+    #[test]
+    fn every_flag_shown_in_an_example_is_documented_above_it() {
+        let examples = USAGE.split("EXAMPLES").nth(1).expect("usage has examples");
+        let described = USAGE.split("EXAMPLES").next().unwrap();
+        for token in examples.split_whitespace() {
+            let flag = token.trim_end_matches(|c: char| !c.is_ascii_alphanumeric());
+            if !flag.starts_with('-') || flag.len() < 2 {
+                continue;
+            }
+            assert!(
+                described.contains(flag),
+                "{flag} is used in an example but never documented"
+            );
+        }
+    }
+
+    /// Every subcommand earns an example: the synopsis says a command exists,
+    /// an example says what it is for.
+    #[test]
+    fn every_subcommand_appears_in_an_example() {
+        let examples = USAGE.split("EXAMPLES").nth(1).expect("usage has examples");
+        for sub in ["show", "sessions", "files", "export", "projects", "stats", "resume", "completions"] {
+            assert!(examples.contains(sub), "no example uses {sub}");
+        }
+    }
+
+    /// A help page that wraps is harder to read than a shorter one, and the
+    /// example column is the part that grows sideways as flags are added.
+    #[test]
+    fn the_usage_fits_a_standard_terminal() {
+        for line in USAGE.lines() {
+            assert!(
+                line.chars().count() <= 80,
+                "{} columns: {line}",
+                line.chars().count()
+            );
         }
     }
 

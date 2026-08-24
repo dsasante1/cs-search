@@ -15,6 +15,7 @@ use regex::Regex;
 use serde_json::Value;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use walkdir::WalkDir;
@@ -193,6 +194,9 @@ pub fn search(opts: &Opts, re: &Regex) -> Hits {
 }
 
 fn scan_file(path: &Path, ctx: &Ctx, rows: &mut Vec<Row>) {
+    if ctx.opts.thread {
+        return scan_threaded(path, ctx, rows);
+    }
     let Ok(fh) = File::open(path) else { return };
     let mut reader = BufReader::with_capacity(1 << 20, fh);
     let mut buf = Vec::with_capacity(1 << 16);
@@ -229,7 +233,15 @@ fn emit(v: &Value, ctx: &Ctx, rows: &mut Vec<Row>) {
     if !o.since.is_empty() && r.timestamp() < o.since.as_str() {
         return;
     }
+    // The far cutoff is compared by day, so `--until 2026-08-01` keeps the whole
+    // of that day rather than only its first instant.
+    if !o.until.is_empty() && crate::dates::day_of(r.timestamp()) > o.until.as_str() {
+        return;
+    }
     if !o.project.is_empty() && !r.cwd().to_lowercase().contains(&o.project) {
+        return;
+    }
+    if !o.branch.is_empty() && !r.git_branch().to_lowercase().contains(&o.branch) {
         return;
     }
 
@@ -250,18 +262,119 @@ fn emit(v: &Value, ctx: &Ctx, rows: &mut Vec<Row>) {
             rows.push(Row {
                 ts: ts.clone(),
                 project: project.to_owned(),
+                branch: r.git_branch().to_owned(),
                 role: role.to_owned(),
                 sid: sid.clone(),
                 text: clip(&squash(line), o.chars),
-                before: neighbours(&lines[i.saturating_sub(o.before)..i], o.chars),
-                after: neighbours(
-                    lines
-                        .get(i + 1..(i + 1 + o.after).min(lines.len()))
-                        .unwrap_or(&[]),
-                    o.chars,
-                ),
+                // Under --thread these are filled from the turns either side
+                // once the whole file has been read; see `scan_threaded`.
+                before: if o.thread {
+                    Vec::new()
+                } else {
+                    neighbours(&lines[i.saturating_sub(o.before)..i], o.chars)
+                },
+                after: if o.thread {
+                    Vec::new()
+                } else {
+                    neighbours(
+                        lines
+                            .get(i + 1..(i + 1 + o.after).min(lines.len()))
+                            .unwrap_or(&[]),
+                        o.chars,
+                    )
+                },
             });
         }
+    }
+}
+
+/// One conversation turn, reduced to what showing it as context needs.
+///
+/// Kept per file while `--thread` reads it: a chain can only be walked once both
+/// ends of it have been seen, and holding a summary per turn is cheap where
+/// holding the parsed records would not be.
+struct Turn {
+    uuid: String,
+    parent: String,
+    role: &'static str,
+    text: String,
+}
+
+/// `--thread`: surround each match with the turns either side of it.
+///
+/// `-C` widens a match within the message it sits in, which for prose is more
+/// of the same paragraph. The useful neighbours are the prompt that led to the
+/// reply and the reply that followed the prompt, and those are different
+/// records — reachable only through `parentUuid`, which is why this reads the
+/// file rather than the block.
+///
+/// Every conversation record is decoded here, prefilter or not: which turns are
+/// neighbours is not knowable until the chain is built, so there is nothing to
+/// reject early. That cost is why it is a flag.
+fn scan_threaded(path: &Path, ctx: &Ctx, rows: &mut Vec<Row>) {
+    let Ok(fh) = File::open(path) else { return };
+    let mut turns: Vec<Turn> = Vec::new();
+    // Which turn each row we emitted came from, so the two can be rejoined once
+    // the whole chain is known.
+    let mut origin: Vec<(usize, usize)> = Vec::new();
+
+    for line in BufReader::with_capacity(1 << 20, fh).lines().map_while(Result::ok) {
+        let Ok(v) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        let r = Record::new(&v);
+        if !r.is_conversation() || r.is_meta() {
+            continue;
+        }
+        // Collected before the filters run, because a match's neighbour is
+        // routinely the speaker the filters excluded: -r assistant still wants
+        // to show the prompt that produced the answer.
+        let here = turns.len();
+        turns.push(Turn {
+            uuid: r.uuid().to_owned(),
+            parent: r.parent_uuid().to_owned(),
+            role: if r.kind() == "user" { "you" } else { "asst" },
+            text: clip(&squash(&r.blocks(ctx.blocks).join(" ")), ctx.opts.chars),
+        });
+
+        let before = rows.len();
+        emit(&v, ctx, rows);
+        origin.extend((before..rows.len()).map(|i| (i, here)));
+    }
+
+    let by_uuid: HashMap<&str, usize> = turns
+        .iter()
+        .enumerate()
+        .map(|(i, t)| (t.uuid.as_str(), i))
+        .collect();
+    // First child wins: a branch point in the chain is a retry or a fork, and
+    // the reply that actually followed is the earlier one.
+    let mut child_of: HashMap<&str, usize> = HashMap::new();
+    for (i, t) in turns.iter().enumerate() {
+        if !t.parent.is_empty() {
+            child_of.entry(t.parent.as_str()).or_insert(i);
+        }
+    }
+
+    for (row, here) in origin {
+        let turn = &turns[here];
+        let parent = by_uuid.get(turn.parent.as_str()).copied();
+        let child = child_of.get(turn.uuid.as_str()).copied();
+        rows[row].before = lead('\u{2191}', parent.map(|i| &turns[i]));
+        rows[row].after = lead('\u{2193}', child.map(|i| &turns[i]));
+    }
+}
+
+/// A neighbouring turn as one context line: which way it lies, who spoke, what
+/// they said. Without the speaker the two lines read as more of the match.
+///
+/// A turn with nothing to show — one carrying only the tool blocks the current
+/// filters exclude — yields no line at all. An arrow and a speaker above an
+/// empty string is worse than the absence it is reporting.
+fn lead(arrow: char, turn: Option<&Turn>) -> Vec<String> {
+    match turn {
+        Some(t) if !t.text.trim().is_empty() => vec![format!("{arrow} {:4}  {}", t.role, t.text)],
+        _ => Vec::new(),
     }
 }
 

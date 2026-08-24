@@ -1,6 +1,10 @@
 //! cs — search Claude Code conversation history across every session and project.
 
 mod cli;
+mod completions;
+mod dates;
+mod export;
+mod files;
 mod interactive;
 mod output;
 mod picker;
@@ -11,13 +15,14 @@ mod resume;
 mod scan;
 mod sessions;
 mod show;
+mod stats;
 
 use cli::{Opts, Parsed, USAGE};
 use output::Row;
 use regex::Regex;
 use std::ffi::OsString;
 use std::io::{BufWriter, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::exit;
 
 fn main() {
@@ -42,6 +47,9 @@ fn main() {
             exit(0);
         }
         "projects" => exit(projects::run(sub(1), Opts::default().jobs)),
+        "files" => exit(files_command(&args)),
+        "stats" => exit(stats_command(&args)),
+        "export" => exit(export_command(&args)),
         "resume" => exit(resume::run(sub(1))),
         // Internal, and spelled so: these exist for the picker's key bindings to
         // call back into, and are not part of the CLI.
@@ -53,6 +61,19 @@ fn main() {
         "__header" => {
             println!("{}", picker::header(Path::new(sub(1)), sub(2)));
             exit(0);
+        }
+        "completions" => {
+            let stdout = std::io::stdout();
+            let mut w = BufWriter::new(stdout.lock());
+            let code = match completions::write(&mut w, sub(1)) {
+                Ok(()) => 0,
+                Err(e) => {
+                    eprintln!("{e}");
+                    2
+                }
+            };
+            let _ = w.flush();
+            exit(code);
         }
         "-h" | "--help" => {
             print!("{USAGE}");
@@ -231,6 +252,18 @@ fn probe_set(opts: &Opts) -> Vec<(String, Opts)> {
             Opts { since: String::new(), ..opts.clone() },
         ));
     }
+    if !opts.until.is_empty() {
+        probes.push((
+            format!("-u {}", opts.until),
+            Opts { until: String::new(), ..opts.clone() },
+        ));
+    }
+    if !opts.branch.is_empty() {
+        probes.push((
+            format!("-b {}", opts.branch),
+            Opts { branch: String::new(), ..opts.clone() },
+        ));
+    }
     if opts.no_sub {
         probes.push(("-n".into(), Opts { no_sub: false, ..opts.clone() }));
     }
@@ -262,6 +295,153 @@ fn widenings(opts: &Opts, re: &Regex) -> Vec<(usize, String)> {
             (found > 0).then_some((found, flag))
         })
         .collect()
+}
+
+/// `cs export <id> [--format md|html|json] [-r user|assistant]`.
+///
+/// Hand-parsed for the same reason `show` is: it takes an id and a couple of
+/// flags of its own, and has never shared the search grammar.
+fn export_command(args: &[OsString]) -> i32 {
+    let mut id = String::new();
+    let mut role = String::new();
+    let mut format = export::Format::Markdown;
+    let mut rest = args.iter().skip(1);
+
+    while let Some(arg) = rest.next() {
+        match arg.to_str().unwrap_or("") {
+            "--format" | "-f" => {
+                let v = rest.next().and_then(|v| v.to_str()).unwrap_or("");
+                match export::Format::parse(v) {
+                    Ok(f) => format = f,
+                    Err(e) => {
+                        eprintln!("{e}");
+                        return 2;
+                    }
+                }
+            }
+            "--role" | "-r" => {
+                role = rest.next().and_then(|v| v.to_str()).unwrap_or("").to_owned();
+                if role != "user" && role != "assistant" {
+                    eprintln!("--role must be 'user' or 'assistant', got: {role}");
+                    return 2;
+                }
+            }
+            value if id.is_empty() => id = value.to_owned(),
+            _ => {}
+        }
+    }
+    export::run(&id, &role, format)
+}
+
+/// `cs stats [-P proj] [-b branch] [-s date] [-u date] [--prices f] [--json]`.
+///
+/// Hand-parsed because it is the one search-shaped command with no pattern:
+/// `cli::parse` treats a missing one as a usage error, which is right
+/// everywhere else.
+fn stats_command(args: &[OsString]) -> i32 {
+    let mut o = Opts::default();
+    let mut json = false;
+    let mut prices_at: Option<PathBuf> = None;
+    let mut rest = args.iter().skip(1);
+
+    while let Some(arg) = rest.next() {
+        let mut take = || rest.next().and_then(|v| v.to_str()).unwrap_or("").to_owned();
+        match arg.to_str().unwrap_or("") {
+            "-P" | "--project" => o.project = take().to_lowercase(),
+            "-b" | "--branch" => o.branch = take().to_lowercase(),
+            "-j" | "--jobs" => o.jobs = take().parse().unwrap_or(o.jobs).max(1),
+            "--json" => json = true,
+            "--prices" => prices_at = Some(PathBuf::from(take())),
+            "-s" | "--since" | "-u" | "--until" => {
+                let flag = arg.to_str().unwrap_or("");
+                let spec = take();
+                match dates::resolve(&spec) {
+                    Ok(d) if flag.starts_with("-s") || flag == "--since" => o.since = d,
+                    Ok(d) => o.until = d,
+                    Err(e) => {
+                        eprintln!("{flag}: {e}");
+                        return 2;
+                    }
+                }
+            }
+            other => {
+                eprintln!("unknown option: {other}");
+                return 2;
+            }
+        }
+    }
+
+    let prices = match prices_at.as_deref().map(stats::load_prices) {
+        Some(Ok(p)) => Some(p),
+        Some(Err(e)) => {
+            eprintln!("{e}");
+            return 2;
+        }
+        None => None,
+    };
+
+    let s = stats::collect(&o);
+    if s.messages() == 0 {
+        eprintln!("no messages matched");
+        return 1;
+    }
+    let stdout = std::io::stdout();
+    let mut w = BufWriter::new(stdout.lock());
+    if json {
+        stats::report_json(&mut w, &s, prices.as_ref());
+    } else {
+        stats::report(&mut w, &s, prices.as_ref());
+    }
+    let _ = w.flush();
+    0
+}
+
+/// `cs files <pattern>` — the search flags, applied to paths that were worked
+/// on rather than to anything anyone said.
+///
+/// Shares the flag grammar so `-P`, `-b`, `-s`, `-u` and `-F` mean here exactly
+/// what they mean in a search; the flags that shape a *text* result (-C, -t,
+/// grouping) have nothing to act on and are ignored.
+fn files_command(args: &[OsString]) -> i32 {
+    let opts = match cli::parse(&args[1..]) {
+        Ok(Parsed::Search(o)) => o,
+        Ok(Parsed::Help) => {
+            print!("{USAGE}");
+            return 0;
+        }
+        Err(msg) => {
+            eprintln!("{}", if msg.is_empty() { "cs files <pattern>".into() } else { msg });
+            return 2;
+        }
+    };
+    let (re, note) = match scan::compile(&opts) {
+        Ok(v) => v,
+        Err(msg) => {
+            eprintln!("{msg}");
+            return 2;
+        }
+    };
+    if let Some(note) = note {
+        eprintln!("{note}");
+    }
+
+    let hits = files::run(&opts, &re);
+    if hits.is_empty() {
+        eprintln!("no files matching '{}'", opts.pattern);
+        return 1;
+    }
+    if output::stderr_is_tty() {
+        eprintln!("{}", files::summary(&hits));
+    }
+    let stdout = std::io::stdout();
+    let mut w = BufWriter::new(stdout.lock());
+    if opts.json {
+        files::print_json(&mut w, &hits);
+    } else {
+        files::print(&mut w, &hits, output::is_tty());
+    }
+    let _ = w.flush();
+    0
 }
 
 /// `cs show <id> [-r <role>] [--highlight <pat>] [--at <pat>] [--color] [--no-pager]`.
@@ -320,13 +500,23 @@ mod tests {
             project: "dashqard".into(),
             role: "user".into(),
             since: "2026-08-01".into(),
+            until: "2026-08-09".into(),
+            branch: "ui-overhaul".into(),
             no_sub: true,
             thinking: false,
             ..Default::default()
         };
         assert_eq!(
             flags(&narrow),
-            vec!["-P dashqard", "-r user", "-s 2026-08-01", "-n", "-T"]
+            vec![
+                "-P dashqard",
+                "-r user",
+                "-s 2026-08-01",
+                "-u 2026-08-09",
+                "-b ui-overhaul",
+                "-n",
+                "-T"
+            ]
         );
     }
 

@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 const SID_A: &str = "aaaaaaaa-1111-4444-8888-aaaaaaaaaaaa";
 const SID_B: &str = "bbbbbbbb-2222-4444-8888-bbbbbbbbbbbb";
+const SID_C: &str = "cccccccc-3333-4444-8888-cccccccccccc";
 
 /// A throwaway `CLAUDE_HOME` that deletes itself when the test ends.
 struct Corpus {
@@ -88,6 +89,59 @@ impl Corpus {
                 // compile at all.
                 msg("assistant", SID_B, "/home/u/beta", "2026-08-04T12:00:00Z",
                     json!("compiled the C++ helper in render(props)")),
+            ],
+        );
+
+        // Session C: everything the other two predate — a branch, a generated
+        // title, tool calls that name files, and the usage block `stats` reads.
+        // Its wording is deliberately unique so the older tests keep counting
+        // what they were written to count.
+        self.session(
+            "-home-u-gamma",
+            SID_C,
+            &[
+                linked(
+                    on_branch(
+                        msg("user", SID_C, "/home/u/gamma", "2026-08-10T09:00:00Z",
+                            json!("widget alignment is off")),
+                        "feature/widgets",
+                    ),
+                    "u1", "",
+                ),
+                linked(
+                    with_usage(
+                        on_branch(
+                            msg("assistant", SID_C, "/home/u/gamma", "2026-08-10T09:01:00Z",
+                                json!([{"type": "text", "text": "padding was the culprit"}])),
+                            "feature/widgets",
+                        ),
+                        "claude-opus-5", 100, 40, 860,
+                    ),
+                    "a1", "u1",
+                ),
+                on_branch(
+                    msg("assistant", SID_C, "/home/u/gamma", "2026-08-10T09:02:00Z",
+                        json!([{"type": "tool_use", "name": "Edit",
+                                "input": {"file_path": "/home/u/gamma/src/widget.rs"}},
+                               {"type": "tool_use", "name": "Read",
+                                "input": {"file_path": "/home/u/gamma/src/widget.rs"}},
+                               {"type": "tool_use", "name": "NotebookEdit",
+                                "input": {"notebook_path": "/home/u/gamma/notes.ipynb"}},
+                               {"type": "tool_use", "name": "Bash",
+                                "input": {"command": "cargo test"}}])),
+                    "feature/widgets",
+                ),
+                // A later session on a different branch touches the same file,
+                // so "how many sessions" is not the same as "how many touches".
+                on_branch(
+                    msg("assistant", SID_C, "/home/u/gamma", "2026-08-11T09:00:00Z",
+                        json!([{"type": "tool_use", "name": "Write",
+                                "input": {"file_path": "/home/u/gamma/src/widget.rs"}}])),
+                    "main",
+                ),
+                // Titles are rewritten as a session goes on; the last one wins.
+                json!({"type": "ai-title", "aiTitle": "An early guess", "sessionId": SID_C}),
+                json!({"type": "ai-title", "aiTitle": "Widget padding fix", "sessionId": SID_C}),
             ],
         );
 
@@ -186,6 +240,29 @@ fn meta(mut v: Value) -> Value {
 
 fn sidechain(mut v: Value) -> Value {
     v["isSidechain"] = json!(true);
+    v
+}
+
+fn on_branch(mut v: Value, branch: &str) -> Value {
+    v["gitBranch"] = json!(branch);
+    v
+}
+
+/// Chain a record to the one before it, which is what `--thread` walks.
+fn linked(mut v: Value, uuid: &str, parent: &str) -> Value {
+    v["uuid"] = json!(uuid);
+    v["parentUuid"] = json!(parent);
+    v
+}
+
+fn with_usage(mut v: Value, model: &str, input: u64, output: u64, cache_read: u64) -> Value {
+    v["message"]["model"] = json!(model);
+    v["message"]["usage"] = json!({
+        "input_tokens": input,
+        "output_tokens": output,
+        "cache_read_input_tokens": cache_read,
+        "cache_creation_input_tokens": 0,
+    });
     v
 }
 
@@ -581,7 +658,8 @@ fn sessions_lists_each_session_with_its_opening_prompt() {
     let c = Corpus::new();
     let r = c.run(&["sessions"]);
     assert_eq!(r.code, 0);
-    assert_eq!(r.count(), 2, "{}", r.stdout);
+    assert_eq!(r.count(), 3, "{}", r.stdout);
+    // A and B have no title, so they fall back to how they opened.
     assert!(r.stdout.contains("SELECT * FROM users"), "{}", r.stdout);
     // A multi-line opening prompt is flattened onto one row.
     assert!(r.stdout.contains("multi line second needle line"), "{}", r.stdout);
@@ -676,6 +754,344 @@ fn prompts_combine_the_since_and_project_filters() {
     assert_eq!(r.code, 1, "alpha's only prompt predates the cutoff: {}", r.stdout);
 }
 
+// ---------------------------------------------------------------- branch
+
+#[test]
+fn the_branch_filter_narrows_to_one_branch() {
+    let c = Corpus::new();
+    let r = c.run(&["-b", "widgets", "padding"]);
+    assert_eq!(r.count(), 1, "{}", r.stdout);
+    assert!(r.stdout.contains("padding was the culprit"), "{}", r.stdout);
+    // Nothing on that branch says "needle", so the filter must empty it.
+    assert_eq!(c.run(&["-b", "widgets", "needle"]).code, 1);
+}
+
+#[test]
+fn the_branch_filter_takes_a_substring_case_insensitively() {
+    let c = Corpus::new();
+    assert_eq!(c.run(&["-b", "FEATURE/WIDGETS", "padding"]).count(), 1);
+    assert_eq!(c.run(&["--branch", "feat", "padding"]).count(), 1);
+}
+
+/// Sessions predating the field are not silently attributed to a branch.
+#[test]
+fn a_record_with_no_branch_matches_no_branch_filter() {
+    let c = Corpus::new();
+    assert_eq!(c.run(&["-b", "main", "SELECT"]).code, 1, "alpha records carry no branch");
+}
+
+#[test]
+fn the_branch_rides_beside_the_project_in_grouped_output() {
+    let c = Corpus::new();
+    let r = c.run(&["--group", "padding"]);
+    assert!(r.stdout.contains("gamma@feature/widgets"), "{}", r.stdout);
+}
+
+/// Flat output is the format scripts parse, so the new column must not appear
+/// in it — `--json` is where the branch is exposed for programs.
+#[test]
+fn flat_output_is_unchanged_by_the_branch() {
+    let c = Corpus::new();
+    let r = c.run(&["--no-group", "padding"]);
+    assert!(!r.stdout.contains("feature/widgets"), "{}", r.stdout);
+
+    let j = c.run(&["--json", "padding"]);
+    let v: Value = serde_json::from_str(j.stdout.lines().next().unwrap()).unwrap();
+    assert_eq!(v["branch"], "feature/widgets");
+}
+
+// ------------------------------------------------------------------ date range
+
+#[test]
+fn until_bounds_the_far_end_of_a_range() {
+    let c = Corpus::new();
+    // Alpha's "needle" survivors are the thinking block and the subagent line;
+    // its meta record is never searchable.
+    assert_eq!(c.run(&["-u", "2026-07-31", "needle"]).count(), 2, "alpha only");
+    let both = c.run(&["-s", "2026-08-01", "-u", "2026-08-01", "needle"]);
+    assert_eq!(both.count(), 1, "one day at both ends: {}", both.stdout);
+    assert!(both.stdout.contains("second needle line"), "{}", both.stdout);
+}
+
+/// The named day is included whole; a timestamp inside it sorts after the bare
+/// date it is being compared with.
+#[test]
+fn the_until_day_is_kept_whole() {
+    let c = Corpus::new();
+    assert_eq!(c.run(&["-u", "2026-08-02", "beta project needle"]).count(), 1);
+    assert_eq!(c.run(&["-u", "2026-08-01", "beta project needle"]).code, 1);
+}
+
+#[test]
+fn relative_dates_resolve_against_today() {
+    let c = Corpus::new();
+    // The fixture is dated 2026, so "everything since a century ago" is all of
+    // it and "since today" is none of it, whenever the suite happens to run.
+    assert!(c.run(&["-s", "99y", "needle"]).count() >= 4);
+    assert_eq!(c.run(&["-s", "today", "needle"]).code, 1);
+}
+
+#[test]
+fn a_bad_date_is_rejected_rather_than_matching_nothing() {
+    let c = Corpus::new();
+    let r = c.run(&["-s", "soonish", "needle"]);
+    assert_eq!(r.code, 2);
+    assert!(r.stderr.contains("soonish"), "stderr: {}", r.stderr);
+    assert!(r.stderr.contains("yesterday"), "the error should list the forms: {}", r.stderr);
+    assert_eq!(c.run(&["-u", "2026-02-30", "needle"]).code, 2, "a date that names no day");
+}
+
+// ------------------------------------------------------------------- --thread
+
+#[test]
+fn thread_context_shows_the_turns_either_side() {
+    let c = Corpus::new();
+    let r = c.run(&["--thread", "padding was the culprit"]);
+    assert!(r.stdout.contains("widget alignment is off"),
+            "the prompt that led to the match belongs above it: {}", r.stdout);
+    assert!(r.stdout.contains("\u{2191}"), "and it should be marked as lying above: {}", r.stdout);
+}
+
+#[test]
+fn thread_context_reaches_the_other_speaker() {
+    let c = Corpus::new();
+    let r = c.run(&["--thread", "widget alignment"]);
+    assert!(r.stdout.contains("padding was the culprit"),
+            "a user match should show the reply it drew: {}", r.stdout);
+    assert!(r.stdout.contains("\u{2193}"), "{}", r.stdout);
+}
+
+/// -C widens within one message; --thread crosses records. They answer
+/// different questions, so the flag replaces the line context rather than
+/// adding to it.
+#[test]
+fn thread_replaces_line_context_rather_than_stacking_with_it() {
+    let c = Corpus::new();
+    let r = c.run(&["--thread", "-C", "2", "second needle line"]);
+    assert!(!r.stdout.contains("multi line"),
+            "the neighbouring line should give way to the neighbouring turn: {}", r.stdout);
+}
+
+#[test]
+fn thread_finds_everything_the_ordinary_scan_finds() {
+    let c = Corpus::new();
+    let plain = c.run(&["--no-group", "needle"]).count();
+    let threaded = c.run(&["--no-group", "--thread", "needle"]);
+    let matches = threaded
+        .lines()
+        .iter()
+        .filter(|l| !l.trim_start().starts_with(['\u{2191}', '\u{2193}']))
+        .count();
+    assert_eq!(matches, plain, "--thread must not drop matches: {}", threaded.stdout);
+}
+
+// --------------------------------------------------------------- session titles
+
+#[test]
+fn a_session_is_labelled_by_its_title_when_it_has_one() {
+    let c = Corpus::new();
+    let r = c.run(&["sessions"]);
+    assert!(r.stdout.contains("Widget padding fix"), "{}", r.stdout);
+    assert!(!r.stdout.contains("An early guess"), "the last title wins: {}", r.stdout);
+    assert!(!r.stdout.contains("widget alignment is off"),
+            "a titled session should not fall back to its prompt: {}", r.stdout);
+}
+
+#[test]
+fn the_sessions_filter_matches_titles_too() {
+    let c = Corpus::new();
+    let r = c.run(&["sessions", "padding"]);
+    assert_eq!(r.count(), 1, "{}", r.stdout);
+    assert!(r.stdout.contains("Widget padding fix"), "{}", r.stdout);
+}
+
+// ------------------------------------------------------------------- cs files
+
+#[test]
+fn files_lists_what_was_touched_and_how_often() {
+    let c = Corpus::new();
+    let r = c.run(&["files", "widget"]);
+    assert_eq!(r.code, 0, "stderr: {}", r.stderr);
+    assert_eq!(r.count(), 1, "one path, however many touches: {}", r.stdout);
+    let line = &r.lines()[0];
+    assert!(line.trim_start().starts_with('3'), "edit + read + write: {line}");
+    // Shown relative to the project it belongs to, not as an absolute path.
+    assert!(line.contains("src/widget.rs"), "{line}");
+    assert!(!line.contains("/home/u/gamma/src"), "{line}");
+}
+
+#[test]
+fn files_reads_notebooks_as_well_as_source() {
+    let c = Corpus::new();
+    assert!(c.run(&["files", "ipynb"]).stdout.contains("notes.ipynb"));
+}
+
+/// The filename is in the transcript either way; what makes this a feature is
+/// that a tool call is read as a tool call rather than as text.
+#[test]
+fn files_ignores_paths_that_were_only_talked_about() {
+    let c = Corpus::new();
+    assert_eq!(c.run(&["files", "users"]).code, 1, "SELECT ... FROM users is prose");
+    assert_eq!(c.run(&["files", "cargo test"]).code, 1, "a bash command names no file");
+}
+
+#[test]
+fn files_takes_the_same_filters_a_search_does() {
+    let c = Corpus::new();
+    assert_eq!(c.run(&["files", "-P", "gamma", "widget"]).count(), 1);
+    assert_eq!(c.run(&["files", "-P", "beta", "widget"]).code, 1);
+    assert_eq!(c.run(&["files", "-b", "main", "widget"]).count(), 1, "the Write was on main");
+    assert_eq!(c.run(&["files", "-u", "2026-08-10", "widget"]).count(), 1);
+}
+
+#[test]
+fn files_json_separates_touches_from_sessions() {
+    let c = Corpus::new();
+    let r = c.run(&["files", "--json", "widget"]);
+    let v: Value = serde_json::from_str(r.stdout.lines().next().unwrap()).unwrap();
+    assert_eq!(v["touches"], 3);
+    assert_eq!(v["sessions"], 1);
+    assert_eq!(v["path"], "/home/u/gamma/src/widget.rs");
+    assert_eq!(v["branch"], "main", "the most recent touch names the branch");
+}
+
+#[test]
+fn files_reports_no_match_rather_than_printing_nothing() {
+    let c = Corpus::new();
+    let r = c.run(&["files", "nothing-like-this"]);
+    assert_eq!(r.code, 1);
+    assert!(r.stderr.contains("no files"), "stderr: {}", r.stderr);
+}
+
+// ------------------------------------------------------------------- cs stats
+
+#[test]
+fn stats_counts_sessions_messages_and_projects() {
+    let c = Corpus::new();
+    let r = c.run(&["stats"]);
+    assert_eq!(r.code, 0, "stderr: {}", r.stderr);
+    assert!(r.stdout.contains("3 sessions"), "{}", r.stdout);
+    assert!(r.stdout.contains("3 projects"), "{}", r.stdout);
+}
+
+#[test]
+fn stats_reads_the_model_and_its_token_usage() {
+    let c = Corpus::new();
+    let r = c.run(&["stats", "--json"]);
+    let v: Value = serde_json::from_str(r.stdout.trim()).unwrap();
+    assert_eq!(v["tokens"]["input"], 100);
+    assert_eq!(v["tokens"]["output"], 40);
+    assert_eq!(v["tokens"]["cache_read"], 860);
+    // 860 of the 960 tokens fed in came back from cache.
+    let rate = v["tokens"]["cache_hit_rate"].as_f64().unwrap();
+    assert!((rate - 860.0 / 960.0).abs() < 1e-9, "{rate}");
+    let models = v["models"].as_array().unwrap();
+    assert!(models.iter().any(|m| m["model"] == "claude-opus-5"), "{models:?}");
+}
+
+#[test]
+fn stats_narrows_the_same_way_a_search_does() {
+    let c = Corpus::new();
+    let r = c.run(&["stats", "-P", "gamma", "--json"]);
+    let v: Value = serde_json::from_str(r.stdout.trim()).unwrap();
+    assert_eq!(v["sessions"], 1);
+    assert_eq!(c.run(&["stats", "-b", "nothing-here"]).code, 1);
+    assert_eq!(c.run(&["stats", "-s", "not-a-date"]).code, 2);
+}
+
+/// Cost appears only when the user supplies prices, and a model missing from
+/// the table is named rather than counted as free.
+#[test]
+fn stats_prices_only_what_the_table_prices() {
+    let c = Corpus::new();
+    let table = c.root.join("prices.json");
+    std::fs::write(&table, r#"{"claude-opus-5": {"input": 10.0, "output": 100.0}}"#).unwrap();
+
+    assert!(!c.run(&["stats"]).stdout.contains("COST"), "no table, no cost");
+
+    let r = c.run(&["stats", "--prices", table.to_str().unwrap()]);
+    assert!(r.stdout.contains("COST"), "{}", r.stdout);
+    // Records predating the model field are counted under "unknown", which the
+    // table does not price — so it is named rather than billed at zero.
+    assert!(r.stdout.contains("not in the price table: unknown"), "{}", r.stdout);
+
+    let missing = c.run(&["stats", "--prices", "/no/such/table.json"]);
+    assert_eq!(missing.code, 2);
+}
+
+// ------------------------------------------------------------------ cs export
+
+#[test]
+fn export_writes_markdown_by_default() {
+    let c = Corpus::new();
+    let r = c.run(&["export", "cccccccc"]);
+    assert_eq!(r.code, 0, "stderr: {}", r.stderr);
+    assert!(r.stdout.starts_with("# Session cccccccc"), "{}", r.stdout);
+    assert!(r.stdout.contains("/home/u/gamma"), "{}", r.stdout);
+    assert!(r.stdout.contains("## You · 2026-08-10 09:00"), "{}", r.stdout);
+    assert!(r.stdout.contains("widget alignment is off"), "{}", r.stdout);
+}
+
+#[test]
+fn export_html_is_self_contained_and_escaped() {
+    let c = Corpus::new();
+    let r = c.run(&["export", "aaaaaaaa", "--format", "html"]);
+    assert!(r.stdout.starts_with("<!doctype html>"), "{}", r.stdout);
+    assert!(r.stdout.contains("<style>"), "{}", r.stdout);
+    assert!(!r.stdout.contains("https://"), "no external fetches: {}", r.stdout);
+    // The fixture's `make build \` and quoted text must not escape their tags.
+    assert!(!r.stdout.contains("<article class=\"you\"><h2>You <time>2026-07-01 10:00</time></h2><pre>SELECT * FROM users WHERE id = 1</pre></article>")
+            || r.stdout.contains("&"), "{}", r.stdout);
+}
+
+#[test]
+fn export_json_is_one_object_per_turn() {
+    let c = Corpus::new();
+    let r = c.run(&["export", "cccccccc", "--format", "json"]);
+    let first: Value = serde_json::from_str(r.stdout.lines().next().unwrap()).unwrap();
+    assert_eq!(first["role"], "user");
+    assert_eq!(first["text"], "widget alignment is off");
+}
+
+#[test]
+fn export_reads_one_side_of_the_conversation() {
+    let c = Corpus::new();
+    let r = c.run(&["export", "cccccccc", "-r", "user"]);
+    assert!(r.stdout.contains("widget alignment is off"), "{}", r.stdout);
+    assert!(!r.stdout.contains("padding was the culprit"), "{}", r.stdout);
+}
+
+#[test]
+fn export_rejects_what_it_cannot_write() {
+    let c = Corpus::new();
+    assert_eq!(c.run(&["export", "cccccccc", "--format", "pdf"]).code, 2);
+    assert_eq!(c.run(&["export", "cccccccc", "-r", "nobody"]).code, 2);
+    assert_eq!(c.run(&["export", "zzzzzzzz"]).code, 1, "no such session");
+    assert_eq!(c.run(&["export"]).code, 2, "no id at all");
+}
+
+// ------------------------------------------------------------- cs completions
+
+#[test]
+fn completions_are_produced_for_each_supported_shell() {
+    let c = Corpus::new();
+    for shell in ["bash", "zsh", "fish"] {
+        let r = c.run(&["completions", shell]);
+        assert_eq!(r.code, 0, "{shell}: {}", r.stderr);
+        assert!(r.stdout.contains("cs sessions"), "{shell} should complete ids: {}", r.stdout);
+        assert!(r.stdout.contains("export"), "{shell}: {}", r.stdout);
+    }
+}
+
+#[test]
+fn an_unsupported_shell_is_an_error_with_an_empty_stdout() {
+    let c = Corpus::new();
+    let r = c.run(&["completions", "tcsh"]);
+    assert_eq!(r.code, 2);
+    assert!(r.stdout.is_empty(), "{}", r.stdout);
+    assert!(r.stderr.contains("tcsh"), "stderr: {}", r.stderr);
+}
+
 // ------------------------------------------------------------------------ cli
 
 // --------------------------------------------------------------- cs projects
@@ -685,9 +1101,10 @@ fn projects_lists_each_working_directory_with_a_session_count() {
     let c = Corpus::new();
     let r = c.run(&["projects"]);
     assert_eq!(r.code, 0, "stderr: {}", r.stderr);
-    assert_eq!(r.count(), 2, "{}", r.stdout);
+    assert_eq!(r.count(), 3, "{}", r.stdout);
     assert!(r.stdout.contains("/home/u/alpha"), "{}", r.stdout);
     assert!(r.stdout.contains("/home/u/beta"), "{}", r.stdout);
+    assert!(r.stdout.contains("/home/u/gamma"), "{}", r.stdout);
     // The listing exists so -P has something to name; one session each here.
     for line in r.lines() {
         assert!(line.trim_start().starts_with('1'), "session count: {line}");

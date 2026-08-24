@@ -43,6 +43,20 @@ impl<'a> Record<'a> {
     pub fn timestamp(&self) -> &'a str {
         self.str_field("timestamp")
     }
+    /// The git branch the session was on when this line was written. Recorded
+    /// per line rather than per session, so a session that switched branches
+    /// reports each half correctly.
+    pub fn git_branch(&self) -> &'a str {
+        self.str_field("gitBranch")
+    }
+    pub fn uuid(&self) -> &'a str {
+        self.str_field("uuid")
+    }
+    /// The record this one replied to, which is what makes a transcript a chain
+    /// rather than a list.
+    pub fn parent_uuid(&self) -> &'a str {
+        self.str_field("parentUuid")
+    }
     pub fn is_meta(&self) -> bool {
         self.bool_field("isMeta")
     }
