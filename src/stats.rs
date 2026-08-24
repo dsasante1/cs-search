@@ -93,7 +93,15 @@ fn span(first: &mut String, last: &mut String, ts: &str) {
 }
 
 pub fn collect(opts: &Opts) -> Stats {
-    let queue = Arc::new(Mutex::new(scan::transcripts()));
+    // A session id narrows the walk to the one file that holds it rather than
+    // filtering every record in the corpus against it: the transcripts are
+    // named by session, so the answer is in the filename.
+    let files = if opts.session.is_empty() {
+        scan::transcripts()
+    } else {
+        crate::show::resolve(&opts.session)
+    };
+    let queue = Arc::new(Mutex::new(files));
     let out: Arc<Mutex<Stats>> = Arc::new(Mutex::new(Stats::default()));
 
     std::thread::scope(|s| {
@@ -167,7 +175,7 @@ fn read(path: &Path, opts: &Opts, into: &mut Stats) {
 
 /// The usage block, read defensively: it is an internal field that has gained
 /// members over time, and a missing one means zero rather than an error.
-fn usage(v: &Value) -> Tokens {
+pub fn usage(v: &Value) -> Tokens {
     let Some(u) = v.pointer("/message/usage") else {
         return Tokens::default();
     };
@@ -245,12 +253,15 @@ pub fn cost(stats: &Stats, prices: &Prices) -> (f64, Vec<String>) {
 const TOP: usize = 8;
 
 pub fn report(w: &mut impl Write, s: &Stats, prices: Option<&Prices>) {
+    let n = |count: usize, word: &str| {
+        format!("{} {word}{}", thousands(count as u64), if count == 1 { "" } else { "s" })
+    };
     let _ = writeln!(
         w,
-        "{} sessions · {} messages · {} projects",
-        thousands(s.sessions.len() as u64),
-        thousands(s.messages() as u64),
-        s.projects.len()
+        "{} · {} · {}",
+        n(s.sessions.len(), "session"),
+        n(s.messages(), "message"),
+        n(s.projects.len(), "project"),
     );
     if !s.first.is_empty() {
         let _ = writeln!(w, "{} → {}", s.first, s.last);

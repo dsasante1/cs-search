@@ -127,7 +127,7 @@ fn collect(path: &Path, opts: &Opts, re: &Regex, out: &mut Vec<Touch>) {
 /// Read by key rather than by tool name: `file_path` and `notebook_path` are
 /// what the tools agree on, and keying off the names of the tools themselves
 /// would quietly stop seeing whichever one is added next.
-fn paths_in(v: &Value) -> Vec<String> {
+pub fn paths_in(v: &Value) -> Vec<String> {
     let Some(Value::Array(items)) = v.pointer("/message/content") else {
         return Vec::new();
     };

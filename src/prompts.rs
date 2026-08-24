@@ -31,6 +31,12 @@ pub fn run(opts: &Opts, re: &Regex) -> Result<Vec<Row>, String> {
         if !re.is_match(display) {
             continue;
         }
+        // A prompt is one record however many lines were typed into it, so the
+        // whole thing is the unit here — unlike a transcript line, which `scan`
+        // tests one at a time.
+        if opts.questions && !crate::record::is_question(display) {
+            continue;
+        }
         let project = v.get("project").and_then(Value::as_str).unwrap_or("");
         if !opts.project.is_empty() && !project.to_lowercase().contains(&opts.project) {
             continue;

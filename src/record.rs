@@ -118,6 +118,32 @@ pub fn stringify(v: &Value) -> String {
     }
 }
 
+/// Does this text ask something?
+///
+/// `-q` exists to find the questions you put to Claude, and the honest way to
+/// recognise one is punctuation: a `?` that ends a clause. There is no list of
+/// interrogative openers, because "can you run the tests" is a request rather
+/// than a question and no wordlist separates the two without being tuned
+/// forever. The cost is recall — a question typed without its mark is missed —
+/// and that is the direction to be wrong in.
+///
+/// The mark has to both end a clause and follow a word, which is what keeps
+/// `?` as *syntax* out of it: a query string (`?id=1`) fails the first test, a
+/// null-coalescing `a ?? b` and a bare `?` fail the second. A run of marks is
+/// walked back over, so `really??` is still somebody asking.
+pub fn is_question(text: &str) -> bool {
+    let c: Vec<char> = text.chars().collect();
+    c.iter().enumerate().any(|(i, ch)| {
+        if *ch != '?' || !c.get(i + 1).is_none_or(|n| n.is_whitespace()) {
+            return false;
+        }
+        c[..i]
+            .iter()
+            .rfind(|p| **p != '?')
+            .is_some_and(|p| p.is_alphanumeric() || "\")'\u{201d}\u{2019}".contains(*p))
+    })
+}
+
 /// Truncate to at most `n` characters (not bytes), matching jq's `.[0:n]`.
 pub fn take_chars(s: &str, n: usize) -> &str {
     match s.char_indices().nth(n) {
@@ -133,6 +159,28 @@ mod tests {
 
     const ALL: BlockOpts = BlockOpts { thinking: true, tools: true };
     const TEXT_ONLY: BlockOpts = BlockOpts { thinking: false, tools: false };
+
+    #[test]
+    fn a_question_is_recognised_by_the_mark_that_ends_a_clause() {
+        assert!(is_question("how does this work?"));
+        assert!(is_question("why? because of the cache"));
+        assert!(is_question("ok — but is that safe?\n"));
+    }
+
+    #[test]
+    fn a_question_mark_used_as_syntax_is_not_a_question() {
+        // The three ways a '?' shows up in a transcript without anyone asking
+        // anything: a query string, a quantifier, a ternary.
+        assert!(!is_question("GET /users?id=1 returned 500"));
+        assert!(!is_question(r"the pattern is colou?r"));
+        assert!(!is_question("return a ?? b"));
+    }
+
+    #[test]
+    fn a_statement_is_not_a_question() {
+        assert!(!is_question("run it against staging first"));
+        assert!(!is_question(""));
+    }
 
     #[test]
     fn take_chars_counts_characters_not_bytes() {

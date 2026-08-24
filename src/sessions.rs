@@ -118,7 +118,7 @@ fn first_prompt(path: &Path) -> Option<(SystemTime, PathBuf, Row)> {
 /// Read from the end rather than by scanning, so a 38 MB transcript costs the
 /// same as a small one. Starting mid-file leaves a partial first line, which is
 /// dropped rather than parsed.
-fn last_title(path: &Path) -> Option<String> {
+pub fn last_title(path: &Path) -> Option<String> {
     let mut fh = File::open(path).ok()?;
     let len = fh.metadata().ok()?.len();
     let from = len.saturating_sub(TAIL_BYTES);

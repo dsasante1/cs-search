@@ -1,16 +1,20 @@
 //! cs — search Claude Code conversation history across every session and project.
 
+mod activity;
 mod cli;
 mod completions;
 mod dates;
 mod export;
 mod files;
+mod handoff;
+mod history;
 mod interactive;
 mod output;
 mod picker;
 mod projects;
 mod prompts;
 mod record;
+mod related;
 mod resume;
 mod scan;
 mod sessions;
@@ -48,6 +52,10 @@ fn main() {
         }
         "projects" => exit(projects::run(sub(1), Opts::default().jobs)),
         "files" => exit(files_command(&args)),
+        "history" => exit(history_command(&args)),
+        "activity" => exit(activity_command(&args)),
+        "handoff" => exit(handoff_command(&args)),
+        "related" => exit(related_command(&args)),
         "stats" => exit(stats_command(&args)),
         "export" => exit(export_command(&args)),
         "resume" => exit(resume::run(sub(1))),
@@ -108,6 +116,9 @@ fn main() {
     if let Some(note) = note {
         eprintln!("{note}");
     }
+    if let Some(note) = cli::trailing_flag(&args, &opts.pattern) {
+        eprintln!("{note}");
+    }
 
     let rows = if opts.prompts {
         match prompts::run(&opts, &re) {
@@ -165,7 +176,10 @@ fn present(opts: &Opts, rows: &[Row], re: &Regex) -> i32 {
     }
 
     let tty = output::is_tty();
-    if opts.interactive || (tty && !opts.plain) {
+    // --chrono asked a question the picker cannot answer — it renders one row
+    // per session, and the picker's rows are matches — so it goes straight to
+    // the terminal, the way --plain does.
+    if opts.interactive || (tty && !opts.plain && !opts.grouping.chrono()) {
         match interactive::run(rows, opts, re) {
             Some(code) => return code,
             None if opts.interactive => {
@@ -181,7 +195,9 @@ fn present(opts: &Opts, rows: &[Row], re: &Regex) -> i32 {
     }
     let mut w = BufWriter::new(stdout.lock());
     let hl = tty.then_some(re);
-    if opts.grouping.applies(tty) {
+    if opts.grouping.chrono() {
+        output::print_chrono(&mut w, rows, tty, hl);
+    } else if opts.grouping.applies(tty) {
         output::print_grouped(&mut w, rows, tty, hl);
     } else {
         output::print_flat(&mut w, rows, tty, hl);
@@ -333,64 +349,277 @@ fn export_command(args: &[OsString]) -> i32 {
     export::run(&id, &role, format)
 }
 
-/// `cs stats [-P proj] [-b branch] [-s date] [-u date] [--prices f] [--json]`.
+/// What a pattern-less command may be given besides the shared filters.
+#[derive(Clone, Copy)]
+struct Allow {
+    session: bool,
+    prices: bool,
+    limit: bool,
+    /// Whether `-P`, `-b`, `-s` and `-u` mean anything here. They do for the
+    /// commands that walk the corpus and not for the two that are handed one
+    /// session — where narrowing by project or date could only disagree with
+    /// the session already named. Rejected rather than ignored: an argument
+    /// that quietly does nothing is the outcome worth avoiding.
+    filters: bool,
+}
+
+impl Default for Allow {
+    fn default() -> Self {
+        Allow { session: false, prices: false, limit: false, filters: true }
+    }
+}
+
+/// One session, named rather than filtered for.
+const ONE_SESSION: Allow = Allow { session: true, prices: false, limit: false, filters: false };
+
+struct CorpusArgs {
+    opts: Opts,
+    json: bool,
+    prices: Option<PathBuf>,
+    limit: usize,
+}
+
+/// The flags the pattern-less commands share.
 ///
-/// Hand-parsed because it is the one search-shaped command with no pattern:
-/// `cli::parse` treats a missing one as a usage error, which is right
-/// everywhere else.
-fn stats_command(args: &[OsString]) -> i32 {
-    let mut o = Opts::default();
-    let mut json = false;
-    let mut prices_at: Option<PathBuf> = None;
+/// `cli::parse` is the grammar for *searches*, and treats a missing pattern as
+/// a usage error — right for a search, wrong for the five commands that take a
+/// session id or nothing at all. One parser for all of them, so `-P` and `-s`
+/// cannot come to mean different things in different subcommands.
+fn parse_corpus(args: &[OsString], allow: Allow) -> Result<CorpusArgs, String> {
+    let mut c = CorpusArgs {
+        opts: Opts::default(),
+        json: false,
+        prices: None,
+        limit: related::DEFAULT_LIMIT,
+    };
     let mut rest = args.iter().skip(1);
 
     while let Some(arg) = rest.next() {
         let mut take = || rest.next().and_then(|v| v.to_str()).unwrap_or("").to_owned();
         match arg.to_str().unwrap_or("") {
-            "-P" | "--project" => o.project = take().to_lowercase(),
-            "-b" | "--branch" => o.branch = take().to_lowercase(),
-            "-j" | "--jobs" => o.jobs = take().parse().unwrap_or(o.jobs).max(1),
-            "--json" => json = true,
-            "--prices" => prices_at = Some(PathBuf::from(take())),
-            "-s" | "--since" | "-u" | "--until" => {
-                let flag = arg.to_str().unwrap_or("");
+            "-P" | "--project" if allow.filters => c.opts.project = take().to_lowercase(),
+            "-b" | "--branch" if allow.filters => c.opts.branch = take().to_lowercase(),
+            "-j" | "--jobs" => c.opts.jobs = take().parse().unwrap_or(c.opts.jobs).max(1),
+            "--json" => c.json = true,
+            "--prices" if allow.prices => c.prices = Some(PathBuf::from(take())),
+            "--limit" if allow.limit => {
+                let v = take();
+                c.limit = v.parse().map_err(|_| format!("bad --limit value: {v}"))?;
+            }
+            flag @ ("-s" | "--since" | "-u" | "--until") if allow.filters => {
                 let spec = take();
-                match dates::resolve(&spec) {
-                    Ok(d) if flag.starts_with("-s") || flag == "--since" => o.since = d,
-                    Ok(d) => o.until = d,
-                    Err(e) => {
-                        eprintln!("{flag}: {e}");
-                        return 2;
-                    }
+                let day = dates::resolve(&spec).map_err(|e| format!("{flag}: {e}"))?;
+                if flag == "-s" || flag == "--since" {
+                    c.opts.since = day;
+                } else {
+                    c.opts.until = day;
                 }
             }
-            other => {
-                eprintln!("unknown option: {other}");
-                return 2;
+            value
+                if allow.session && c.opts.session.is_empty() && !value.starts_with('-') =>
+            {
+                c.opts.session = value.to_owned()
             }
+            f @ ("-P" | "--project" | "-b" | "--branch" | "-s" | "--since" | "-u"
+                | "--until") => {
+                return Err(format!("{f} filters the corpus; this command takes one session"))
+            }
+            other => return Err(format!("unknown option: {other}")),
         }
     }
+    Ok(c)
+}
 
-    let prices = match prices_at.as_deref().map(stats::load_prices) {
-        Some(Ok(p)) => Some(p),
-        Some(Err(e)) => {
+/// Load the price table, if one was named.
+fn prices_of(at: Option<&Path>) -> Result<Option<stats::Prices>, String> {
+    at.map(stats::load_prices).transpose()
+}
+
+/// `cs stats [session-id] [-P proj] [-b branch] [-s date] [-u date]
+/// [--prices f] [--json]`.
+fn stats_command(args: &[OsString]) -> i32 {
+    let c = match parse_corpus(args, Allow { session: true, prices: true, ..Allow::default() }) {
+        Ok(c) => c,
+        Err(e) => {
             eprintln!("{e}");
             return 2;
         }
-        None => None,
     };
+    let prices = match prices_of(c.prices.as_deref()) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("{e}");
+            return 2;
+        }
+    };
+    // Resolved here rather than inside the walk, so an id matching two sessions
+    // says so once instead of quietly totalling both.
+    let mut opts = c.opts;
+    if !opts.session.is_empty() {
+        let Some(path) = show::pick(&opts.session, "counting") else {
+            return 1;
+        };
+        opts.session = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_owned();
+    }
 
-    let s = stats::collect(&o);
+    let s = stats::collect(&opts);
     if s.messages() == 0 {
         eprintln!("no messages matched");
         return 1;
     }
     let stdout = std::io::stdout();
     let mut w = BufWriter::new(stdout.lock());
-    if json {
+    if c.json {
         stats::report_json(&mut w, &s, prices.as_ref());
     } else {
         stats::report(&mut w, &s, prices.as_ref());
+    }
+    let _ = w.flush();
+    0
+}
+
+/// `cs activity [-P proj] [-b branch] [-s date] [-u date] [--json]`.
+fn activity_command(args: &[OsString]) -> i32 {
+    let c = match parse_corpus(args, Allow::default()) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{e}");
+            return 2;
+        }
+    };
+    let a = activity::collect(&c.opts);
+    if a.is_empty() {
+        eprintln!("no messages matched");
+        return 1;
+    }
+    let stdout = std::io::stdout();
+    let mut w = BufWriter::new(stdout.lock());
+    if c.json {
+        activity::report_json(&mut w, &a);
+    } else {
+        activity::report(&mut w, &a, output::is_tty());
+    }
+    let _ = w.flush();
+    0
+}
+
+/// `cs handoff <session-id> [--prices f]`.
+fn handoff_command(args: &[OsString]) -> i32 {
+    let c = match parse_corpus(args, Allow { prices: true, ..ONE_SESSION }) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{e}");
+            return 2;
+        }
+    };
+    if c.opts.session.is_empty() {
+        eprintln!("cs handoff <session-id>");
+        return 2;
+    }
+    let prices = match prices_of(c.prices.as_deref()) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("{e}");
+            return 2;
+        }
+    };
+    handoff::run(&c.opts.session, prices.as_ref(), c.opts.jobs)
+}
+
+/// `cs related <session-id> [--limit n] [--json]`.
+fn related_command(args: &[OsString]) -> i32 {
+    let c = match parse_corpus(args, Allow { limit: true, ..ONE_SESSION }) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{e}");
+            return 2;
+        }
+    };
+    if c.opts.session.is_empty() {
+        eprintln!("cs related <session-id>");
+        return 2;
+    }
+    related::run(&c.opts.session, c.limit, c.json, c.opts.jobs)
+}
+
+/// `cs history <pattern>` — the same search, counted rather than listed.
+///
+/// Shares the search grammar, because "when did this come up" is a question
+/// about a result set and every flag that shapes one applies: `-P`, `-s`, `-t`,
+/// `-p` and the rest all mean here exactly what they mean in a search.
+fn history_command(args: &[OsString]) -> i32 {
+    // `--sessions` is not part of that grammar, so it is taken out before the
+    // shared parser can reject it.
+    let mut list = false;
+    let rest: Vec<OsString> = args[1..]
+        .iter()
+        .filter(|a| {
+            let is = a.to_str() == Some("--sessions");
+            list |= is;
+            !is
+        })
+        .cloned()
+        .collect();
+
+    let opts = match cli::parse(&rest) {
+        Ok(Parsed::Search(o)) => o,
+        Ok(Parsed::Help) => {
+            print!("{USAGE}");
+            return 0;
+        }
+        Err(msg) => {
+            eprintln!("{}", if msg.is_empty() { "cs history <pattern>".into() } else { msg });
+            return 2;
+        }
+    };
+    let (re, note) = match scan::compile(&opts) {
+        Ok(v) => v,
+        Err(msg) => {
+            eprintln!("{msg}");
+            return 2;
+        }
+    };
+    if let Some(note) = note {
+        eprintln!("{note}");
+    }
+    // `--sessions` was taken out above, so it cannot be mistaken for one of these.
+    if let Some(note) = cli::trailing_flag(&rest, &opts.pattern) {
+        eprintln!("{note}");
+    }
+
+    let rows = if opts.prompts {
+        match prompts::run(&opts, &re) {
+            Ok(rows) => rows,
+            Err(msg) => {
+                eprintln!("{msg}");
+                return 1;
+            }
+        }
+    } else {
+        scan::search(&opts, &re).rows
+    };
+    if rows.is_empty() {
+        // The same report a search gives, filter by filter.
+        return no_matches(&opts, &re);
+    }
+
+    let h = history::summarize(&opts.pattern, &rows);
+    let tty = output::is_tty();
+    let stdout = std::io::stdout();
+    let mut w = BufWriter::new(stdout.lock());
+    if opts.json {
+        history::report_json(&mut w, &h, list.then_some(&rows[..]));
+    } else {
+        history::report(&mut w, &h, chrono::Local::now().date_naive());
+        if list {
+            let _ = writeln!(w, "
+SESSIONS");
+            output::print_chrono(&mut w, &rows, tty, tty.then_some(&re));
+        }
     }
     let _ = w.flush();
     0
@@ -422,6 +651,9 @@ fn files_command(args: &[OsString]) -> i32 {
         }
     };
     if let Some(note) = note {
+        eprintln!("{note}");
+    }
+    if let Some(note) = cli::trailing_flag(args, &opts.pattern) {
         eprintln!("{note}");
     }
 

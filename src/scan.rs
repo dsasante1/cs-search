@@ -259,6 +259,13 @@ fn emit(v: &Value, ctx: &Ctx, rows: &mut Vec<Row>) {
             if !ctx.re.is_match(line) {
                 continue;
             }
+            // Applied to the matching line rather than to the whole message,
+            // because everything else here is line-oriented too: a question two
+            // lines below the hit is a different line, and `-q` is a claim
+            // about the line it kept.
+            if o.questions && !crate::record::is_question(line) {
+                continue;
+            }
             rows.push(Row {
                 ts: ts.clone(),
                 project: project.to_owned(),

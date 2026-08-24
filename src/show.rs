@@ -7,7 +7,7 @@
 //! scroll past.
 
 use crate::output::{highlight, term_width, CYAN, DIM, MAGENTA, RESET};
-use crate::record::{stringify, take_chars, Record};
+use crate::record::{stringify, take_chars, BlockOpts, Record};
 use crate::scan;
 use regex::Regex;
 use serde_json::Value;
@@ -112,6 +112,26 @@ pub fn resolve(id: &str) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Resolve an id to exactly one transcript, reporting whatever it had to decide.
+///
+/// Five commands now take a session id, and each had grown its own copy of
+/// "none matched" and "several matched, using the first". One copy, so they
+/// cannot drift apart in what they say or in which file they settle on.
+pub fn pick(id: &str, verb: &str) -> Option<PathBuf> {
+    let matches = resolve(id);
+    let Some(first) = matches.first() else {
+        eprintln!("no session matching '{id}'");
+        return None;
+    };
+    if matches.len() > 1 {
+        eprintln!("# {} sessions match '{id}', {verb} the first:", matches.len());
+        for p in &matches {
+            eprintln!("#   {}", p.display());
+        }
+    }
+    Some(first.clone())
+}
+
 /// The working directory the session ran in, read from its first record.
 pub fn session_cwd(path: &Path) -> Option<String> {
     let fh = File::open(path).ok()?;
@@ -132,21 +152,13 @@ pub fn run_with(id: &str, o: &ShowOpts) -> i32 {
         eprintln!("cs show <session-id>");
         return 2;
     }
-    let matches = resolve(id);
-    let Some(path) = matches.first() else {
-        eprintln!("no session matching '{id}'");
+    // The shell version silently took the first match; be explicit instead.
+    let Some(path) = pick(id, "showing") else {
         return 1;
     };
-    // The shell version silently took the first match; be explicit instead.
-    if matches.len() > 1 {
-        eprintln!("# {} sessions match '{id}', showing the first:", matches.len());
-        for p in &matches {
-            eprintln!("#   {}", p.display());
-        }
-    }
     eprintln!("# {}", path.display());
 
-    let Ok(fh) = File::open(path) else {
+    let Ok(fh) = File::open(&path) else {
         eprintln!("cannot read {}", path.display());
         return 1;
     };
@@ -217,7 +229,7 @@ fn emit(
 /// A rule spanning the full width, rather than the old `=== CC 12:00 ===`: three
 /// equals signs either side read as decoration and left the two speakers running
 /// together down the page. This actually cuts the page in two at every handover.
-fn divider(who: Who, ts: &str, width: usize, color: bool) -> String {
+pub fn divider(who: Who, ts: &str, width: usize, color: bool) -> String {
     let label = format!("── {} {ts} ", who.label());
     let fill = width.saturating_sub(label.chars().count()).max(2);
     if color {
@@ -291,6 +303,16 @@ pub struct Turn {
 
 /// Read a transcript as turns, honouring the same role filter `show` takes.
 pub fn turns(fh: File, role: &str) -> Vec<Turn> {
+    turns_with(fh, role, BlockOpts { thinking: true, tools: true })
+}
+
+/// The same, with a say in which blocks count as part of a turn.
+///
+/// `show` and `export` want everything, because a transcript that hid the tool
+/// calls would be a different document. `handoff` wants what was *said*: a
+/// closing tail made of tool payloads answers nothing about where the work got
+/// to.
+pub fn turns_with(fh: File, role: &str, blocks: BlockOpts) -> Vec<Turn> {
     let mut out = Vec::new();
     for line in BufReader::with_capacity(1 << 20, fh).lines().map_while(Result::ok) {
         let Ok(v) = serde_json::from_str::<Value>(&line) else {
@@ -309,7 +331,7 @@ pub fn turns(fh: File, role: &str) -> Vec<Turn> {
         // Asking for "user" means what you typed. Tool results come back as
         // user-type records, so without this the filtered view is half machine
         // output attributed to you.
-        for text in render_blocks(&r, role == "user") {
+        for text in render_blocks(&r, role == "user", blocks) {
             if text.is_empty() {
                 continue;
             }
@@ -350,7 +372,7 @@ fn open_pager() -> Option<Child> {
 /// Unlike search, `show` always includes thinking and tools — the point is to
 /// read the whole session — but truncates tool payloads so they stay skimmable.
 /// `typed_only` drops the machine's half of a user turn; see the call site.
-fn render_blocks(r: &Record, typed_only: bool) -> Vec<String> {
+fn render_blocks(r: &Record, typed_only: bool, opts: BlockOpts) -> Vec<String> {
     const TOOL_CLIP: usize = 400;
     let Some(content) = r.content() else {
         return Vec::new();
@@ -363,16 +385,16 @@ fn render_blocks(r: &Record, typed_only: bool) -> Vec<String> {
                 let ty = b.get("type").and_then(Value::as_str).unwrap_or("");
                 match ty {
                     "text" => b.get("text").and_then(Value::as_str).map(str::to_owned),
-                    "thinking" => b
+                    "thinking" if opts.thinking => b
                         .get("thinking")
                         .and_then(Value::as_str)
                         .map(|t| format!("[thinking] {t}")),
-                    "tool_use" => {
+                    "tool_use" if opts.tools => {
                         let name = b.get("name").and_then(Value::as_str).unwrap_or("?");
                         let input = b.get("input").map(stringify).unwrap_or_default();
                         Some(format!("[tool: {name}] {}", take_chars(&input, TOOL_CLIP)))
                     }
-                    "tool_result" if !typed_only => {
+                    "tool_result" if opts.tools && !typed_only => {
                         let c = b.get("content").map(stringify).unwrap_or_default();
                         Some(format!("[result] {}", take_chars(&c, TOOL_CLIP)))
                     }

@@ -333,6 +333,64 @@ pub fn print_grouped(w: &mut impl Write, rows: &[Row], color: bool, hl: Option<&
     }
 }
 
+/// `--chrono`: one line per session, oldest first, quoting the line that first
+/// matched in it.
+///
+/// A search answers "where was this mentioned"; this answers "how did it
+/// develop", which is a different shape — one row per session rather than per
+/// match, running forwards rather than backwards. Nothing is summarised: the
+/// text on each row is a line somebody actually wrote, picked by being the
+/// first hit in that session, and the reading of the progression is the
+/// reader's to do.
+///
+/// Rows arrive sorted by timestamp, so grouping them by session already yields
+/// the sessions in the order their first match appeared. There is nothing left
+/// to sort.
+pub fn print_chrono(w: &mut impl Write, rows: &[Row], color: bool, hl: Option<&Regex>) {
+    let (c, d, z) = if color { (CYAN, DIM, RESET) } else { ("", "", "") };
+    let sessions = per_session(rows);
+    let width = project_width(rows);
+    let digits = sessions
+        .iter()
+        .map(|(_, n)| n.to_string().len())
+        .max()
+        .unwrap_or(1);
+
+    // The one renderer whose contract is a line per session, so the line has to
+    // fit: a snippet that wraps three times is no longer a timeline. Only on a
+    // terminal — a pipe gets the text it would have got anywhere else.
+    let room = color.then(|| {
+        term_width().saturating_sub(width + 33 + digits).max(24)
+    });
+
+    for (head, n) in &sessions {
+        let text = match room {
+            Some(r) => clip(&head.text, r),
+            None => head.text.clone(),
+        };
+        let _ = writeln!(
+            w,
+            "{d}{}{z} {c}{}{z} {d}{}{z} {d}{:>digits$}{z}  {}",
+            head.ts,
+            fixed(&head.project, width),
+            head.sid,
+            n,
+            highlighted(&text, hl),
+        );
+    }
+}
+
+/// Each session in a result set, as its first match and how many it had.
+///
+/// Shared by `--chrono` and by `cs history --sessions`, so the two can never
+/// disagree about which line stands for a session or how many it stood for.
+pub fn per_session(rows: &[Row]) -> Vec<(&Row, usize)> {
+    group_by_session(rows)
+        .into_iter()
+        .map(|g| (g[0], g.len()))
+        .collect()
+}
+
 /// One JSON object per line: a whole-array encoding would have to be buffered
 /// and reformatted to be read, and this stays greppable.
 pub fn print_json(w: &mut impl Write, rows: &[Row]) {

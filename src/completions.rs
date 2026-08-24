@@ -17,6 +17,10 @@ pub const SUBCOMMANDS: &[&str] = &[
     "show",
     "sessions",
     "files",
+    "history",
+    "activity",
+    "handoff",
+    "related",
     "export",
     "projects",
     "stats",
@@ -43,12 +47,14 @@ pub const FLAGS: &[&str] = &[
     "-c", "--chars",
     "-l", "--files",
     "-p", "--prompts",
+    "-q", "--questions",
     "-i", "--interactive",
     "-j", "--jobs",
     "--thread",
     "--plain",
     "--group",
     "--no-group",
+    "--chrono",
     "--json",
     "--preview",
     "-h", "--help",
@@ -88,7 +94,7 @@ _cs() {{
 
   # An id is only wanted where one is taken, and listing them is a scan.
   case "$sub" in
-    show|resume|export)
+    show|resume|export|handoff|related|stats)
       if [ "$COMP_CWORD" -eq 2 ]; then
         COMPREPLY=($(compgen -W "$(_cs_sessions)" -- "$cur")); return
       fi;;
@@ -137,7 +143,7 @@ _cs() {{
     first) _describe -t commands 'cs command' '({subs})' ;;
     rest)
       case $words[1] in
-        show|resume|export) _cs_sessions ;;
+        show|resume|export|handoff|related|stats) _cs_sessions ;;
         completions) _values 'shell' bash zsh fish ;;
       esac
       _arguments \
@@ -178,7 +184,7 @@ fn fish() -> String {
         ));
     }
     out.push_str(
-        "\ncomplete -c cs -n '__fish_seen_subcommand_from show resume export' -f -a '(__cs_sessions)'\n\
+        "\ncomplete -c cs -n '__fish_seen_subcommand_from show resume export handoff related stats' -f -a '(__cs_sessions)'\n\
          complete -c cs -n '__fish_seen_subcommand_from completions' -f -a 'bash zsh fish'\n\n",
     );
     out.push_str(
@@ -210,6 +216,10 @@ const SUBCOMMAND_HELP: &[(&str, &str)] = &[
     ("show", "print one session as a transcript"),
     ("sessions", "list sessions, newest first"),
     ("files", "which files were edited or read"),
+    ("history", "when a topic started and stopped"),
+    ("activity", "sessions and messages per day"),
+    ("handoff", "where a session left off"),
+    ("related", "sessions sharing this one's words"),
     ("export", "write a session out as md, html or json"),
     ("projects", "list projects"),
     ("stats", "models, tokens and cache use"),
@@ -298,7 +308,10 @@ mod tests {
             .collect();
         for flag in documented {
             // Subcommand-only flags live on their own commands, not on a search.
-            if ["--format", "--prices", "--highlight", "--at", "--color", "--no-pager"]
+            if [
+                "--format", "--prices", "--highlight", "--at", "--color",
+                "--no-pager", "--sessions", "--limit",
+            ]
                 .contains(&flag)
             {
                 continue;
