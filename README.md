@@ -208,7 +208,7 @@ avoids the work.
 cargo test
 ```
 
-205 tests, needing no network and no fixtures beyond what the suite creates and
+215 tests, needing no network and no fixtures beyond what the suite creates and
 cleans up itself:
 
 - **Unit tests** sit inline in each module and cover the pure helpers —
@@ -216,8 +216,9 @@ cleans up itself:
   flattening and its gating, argument parsing, the prefilter's two guards,
   middle-elision, session grouping, the picker's state transitions, the fzf
   command line the picker is launched with, the transcript divider's geometry in
-  both colour and plain form, which filters an empty result probes, and the
-  count-gutter alignment that survives having escape sequences in the line.
+  both colour and plain form, which filters an empty result probes, which
+  prompts a date cutoff keeps, and the count-gutter alignment that survives
+  having escape sequences in the line.
 - **Integration tests** (`tests/cli.rs`) build a synthetic corpus in a temp
   directory, point the binary at it with `CLAUDE_HOME`, and assert on real
   output. The fixture is hand-written, so the suite carries no personal data.
