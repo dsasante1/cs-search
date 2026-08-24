@@ -27,6 +27,7 @@ pub fn save(path: &Path, o: &Opts) {
         "role": o.role,
         "since": o.since,
         "until": o.until,
+        "branch": o.branch,
         "tools": o.tools,
         "thinking": o.thinking,
         "no_sub": o.no_sub,
@@ -58,6 +59,7 @@ pub fn load(path: &Path) -> Opts {
         role: s("role", d.role),
         since: s("since", d.since),
         until: s("until", d.until),
+        branch: s("branch", d.branch),
         tools: b("tools", d.tools),
         thinking: b("thinking", d.thinking),
         no_sub: b("no_sub", d.no_sub),
@@ -125,6 +127,7 @@ pub fn header(path: &Path, query: &str) -> String {
     for (name, value) in [
         ("role", &o.role),
         ("project", &o.project),
+        ("branch", &o.branch),
         ("since", &o.since),
         ("until", &o.until),
     ] {

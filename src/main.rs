@@ -238,6 +238,12 @@ fn probe_set(opts: &Opts) -> Vec<(String, Opts)> {
             Opts { until: String::new(), ..opts.clone() },
         ));
     }
+    if !opts.branch.is_empty() {
+        probes.push((
+            format!("-b {}", opts.branch),
+            Opts { branch: String::new(), ..opts.clone() },
+        ));
+    }
     if opts.no_sub {
         probes.push(("-n".into(), Opts { no_sub: false, ..opts.clone() }));
     }
@@ -328,13 +334,22 @@ mod tests {
             role: "user".into(),
             since: "2026-08-01".into(),
             until: "2026-08-09".into(),
+            branch: "ui-overhaul".into(),
             no_sub: true,
             thinking: false,
             ..Default::default()
         };
         assert_eq!(
             flags(&narrow),
-            vec!["-P dashqard", "-r user", "-s 2026-08-01", "-u 2026-08-09", "-n", "-T"]
+            vec![
+                "-P dashqard",
+                "-r user",
+                "-s 2026-08-01",
+                "-u 2026-08-09",
+                "-b ui-overhaul",
+                "-n",
+                "-T"
+            ]
         );
     }
 

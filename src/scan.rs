@@ -237,6 +237,9 @@ fn emit(v: &Value, ctx: &Ctx, rows: &mut Vec<Row>) {
     if !o.project.is_empty() && !r.cwd().to_lowercase().contains(&o.project) {
         return;
     }
+    if !o.branch.is_empty() && !r.git_branch().to_lowercase().contains(&o.branch) {
+        return;
+    }
 
     let ts = crate::record::take_chars(r.timestamp(), 16).replacen('T', " ", 1);
     let project = r.cwd().rsplit('/').next().unwrap_or("?");
@@ -255,6 +258,7 @@ fn emit(v: &Value, ctx: &Ctx, rows: &mut Vec<Row>) {
             rows.push(Row {
                 ts: ts.clone(),
                 project: project.to_owned(),
+                branch: r.git_branch().to_owned(),
                 role: role.to_owned(),
                 sid: sid.clone(),
                 text: clip(&squash(line), o.chars),

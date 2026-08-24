@@ -8,6 +8,7 @@ cs -F 'useState('                # match the pattern literally, not as a regex
 cs -p 'rate limit'               # only your own prompts (history.jsonl)
 cs -C 2 'ALTER TABLE'            # with two lines of surrounding context
 cs -s last-week 'flaky test'     # a date you do not have to look up
+cs -b ui-overhaul 'divider'      # only what happened on that git branch
 cs show 3f2a1b9c                 # one session as a readable transcript
 cs show 3f2a1b9c -r user         # only the half of it you typed
 cs sessions dashqard             # sessions newest-first, with their opening prompt
@@ -118,6 +119,19 @@ literal rather than rejected, and the substitution is reported.
 
 ## Narrowing
 
+`-P` takes a substring of the project directory. Two filters sit beside it.
+
+`-b/--branch` matches the git branch the session was on, recorded per line
+rather than per session, so a session that switched branches answers for each
+half separately. The branch also rides beside the project in grouped output:
+
+```
+▸ cs@ui-overhaul 623fcafd  2026-08-20 01:01  4 matches
+```
+
+Flat output is deliberately unchanged — those columns are what scripts parse —
+so `--json` is where a program reads the branch.
+
 `-s/--since` and `-u/--until` bound a range from either end, and neither needs a
 date you have to look up:
 
@@ -226,7 +240,7 @@ avoids the work.
 cargo test
 ```
 
-231 tests, needing no network and no fixtures beyond what the suite creates and
+236 tests, needing no network and no fixtures beyond what the suite creates and
 cleans up itself:
 
 - **Unit tests** sit inline in each module and cover the pure helpers —

@@ -754,6 +754,52 @@ fn prompts_combine_the_since_and_project_filters() {
     assert_eq!(r.code, 1, "alpha's only prompt predates the cutoff: {}", r.stdout);
 }
 
+// ---------------------------------------------------------------- branch
+
+#[test]
+fn the_branch_filter_narrows_to_one_branch() {
+    let c = Corpus::new();
+    let r = c.run(&["-b", "widgets", "padding"]);
+    assert_eq!(r.count(), 1, "{}", r.stdout);
+    assert!(r.stdout.contains("padding was the culprit"), "{}", r.stdout);
+    // Nothing on that branch says "needle", so the filter must empty it.
+    assert_eq!(c.run(&["-b", "widgets", "needle"]).code, 1);
+}
+
+#[test]
+fn the_branch_filter_takes_a_substring_case_insensitively() {
+    let c = Corpus::new();
+    assert_eq!(c.run(&["-b", "FEATURE/WIDGETS", "padding"]).count(), 1);
+    assert_eq!(c.run(&["--branch", "feat", "padding"]).count(), 1);
+}
+
+/// Sessions predating the field are not silently attributed to a branch.
+#[test]
+fn a_record_with_no_branch_matches_no_branch_filter() {
+    let c = Corpus::new();
+    assert_eq!(c.run(&["-b", "main", "SELECT"]).code, 1, "alpha records carry no branch");
+}
+
+#[test]
+fn the_branch_rides_beside_the_project_in_grouped_output() {
+    let c = Corpus::new();
+    let r = c.run(&["--group", "padding"]);
+    assert!(r.stdout.contains("gamma@feature/widgets"), "{}", r.stdout);
+}
+
+/// Flat output is the format scripts parse, so the new column must not appear
+/// in it — `--json` is where the branch is exposed for programs.
+#[test]
+fn flat_output_is_unchanged_by_the_branch() {
+    let c = Corpus::new();
+    let r = c.run(&["--no-group", "padding"]);
+    assert!(!r.stdout.contains("feature/widgets"), "{}", r.stdout);
+
+    let j = c.run(&["--json", "padding"]);
+    let v: Value = serde_json::from_str(j.stdout.lines().next().unwrap()).unwrap();
+    assert_eq!(v["branch"], "feature/widgets");
+}
+
 // ------------------------------------------------------------------ date range
 
 #[test]

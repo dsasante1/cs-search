@@ -29,6 +29,7 @@ SEARCH
   -s, --since <date>        only messages on/after this date
   -u, --until <date>        only messages on/before this date
                             dates: YYYY-MM-DD, today, yesterday, 7d, 2w, last-week
+  -b, --branch <substr>     only sessions on a git branch containing substr
   -t, --tools               also search tool calls and tool results (noisy)
   -T, --no-thinking         skip thinking blocks
   -n, --no-sub              skip subagent (sidechain) messages
@@ -56,6 +57,7 @@ EXAMPLES
   cs -F 'useState('
   cs -P dashqard -r user 'rate limit'
   cs -s last-week 'flaky test'
+  cs -b ui-overhaul -s 7d 'divider'
   cs -C 2 'ALTER TABLE'
 "#;
 
@@ -68,6 +70,8 @@ pub struct Opts {
     pub since: String,
     /// `--until`: the far end of the range `--since` opens.
     pub until: String,
+    /// `-b`: substring of the git branch the session was on.
+    pub branch: String,
     pub chars: usize,
     pub files_only: bool,
     pub no_sub: bool,
@@ -96,6 +100,7 @@ impl Default for Opts {
             thinking: true,
             since: String::new(),
             until: String::new(),
+            branch: String::new(),
             chars: 240,
             files_only: false,
             no_sub: false,
@@ -193,6 +198,7 @@ pub fn parse(args: &[OsString]) -> Result<Parsed, String> {
             }
             Short('A') | Long("after") => o.after = count(&mut p, "--after")?,
             Short('B') | Long("before") => o.before = count(&mut p, "--before")?,
+            Short('b') | Long("branch") => o.branch = value(&mut p, &name)?.to_lowercase(),
             Short('t') | Long("tools") => o.tools = true,
             Short('T') | Long("no-thinking") => o.thinking = false,
             Short('l') | Long("files") => o.files_only = true,
