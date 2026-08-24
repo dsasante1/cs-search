@@ -1,6 +1,7 @@
 //! cs — search Claude Code conversation history across every session and project.
 
 mod cli;
+mod dates;
 mod interactive;
 mod output;
 mod picker;
@@ -231,6 +232,12 @@ fn probe_set(opts: &Opts) -> Vec<(String, Opts)> {
             Opts { since: String::new(), ..opts.clone() },
         ));
     }
+    if !opts.until.is_empty() {
+        probes.push((
+            format!("-u {}", opts.until),
+            Opts { until: String::new(), ..opts.clone() },
+        ));
+    }
     if opts.no_sub {
         probes.push(("-n".into(), Opts { no_sub: false, ..opts.clone() }));
     }
@@ -320,13 +327,14 @@ mod tests {
             project: "dashqard".into(),
             role: "user".into(),
             since: "2026-08-01".into(),
+            until: "2026-08-09".into(),
             no_sub: true,
             thinking: false,
             ..Default::default()
         };
         assert_eq!(
             flags(&narrow),
-            vec!["-P dashqard", "-r user", "-s 2026-08-01", "-n", "-T"]
+            vec!["-P dashqard", "-r user", "-s 2026-08-01", "-u 2026-08-09", "-n", "-T"]
         );
     }
 

@@ -229,6 +229,11 @@ fn emit(v: &Value, ctx: &Ctx, rows: &mut Vec<Row>) {
     if !o.since.is_empty() && r.timestamp() < o.since.as_str() {
         return;
     }
+    // The far cutoff is compared by day, so `--until 2026-08-01` keeps the whole
+    // of that day rather than only its first instant.
+    if !o.until.is_empty() && crate::dates::day_of(r.timestamp()) > o.until.as_str() {
+        return;
+    }
     if !o.project.is_empty() && !r.cwd().to_lowercase().contains(&o.project) {
         return;
     }

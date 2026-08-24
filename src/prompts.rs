@@ -39,7 +39,7 @@ pub fn run(opts: &Opts, re: &Regex) -> Result<Vec<Row>, String> {
         // milliseconds where the transcripts carry an ISO string -- there is no
         // date here to compare until one has been formatted.
         let ts = stamp(&v);
-        if !after_since(&ts, &opts.since) {
+        if !after_since(&ts, &opts.since) || !before_until(&ts, &opts.until) {
             continue;
         }
         let sid = v.get("sessionId").and_then(Value::as_str).unwrap_or("");
@@ -88,6 +88,15 @@ fn after_since(ts: &str, since: &str) -> bool {
     since.is_empty() || ts >= since
 }
 
+/// Whether a prompt falls on or before `--until`.
+///
+/// Compared by day rather than as a whole string: `--until 2026-06-21` names a
+/// day the user means to include, and every stamp within it carries a time that
+/// would sort after the bare date.
+fn before_until(ts: &str, until: &str) -> bool {
+    until.is_empty() || crate::dates::day_of(ts) <= until
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,5 +141,26 @@ mod tests {
     #[test]
     fn an_undated_prompt_cannot_clear_a_cutoff() {
         assert!(!after_since("", "2026-06-21"));
+    }
+
+    #[test]
+    fn no_far_cutoff_keeps_everything() {
+        assert!(before_until("2026-06-21 00:00", ""));
+    }
+
+    /// The named day is included whole, both ends: `-s X -u X` is "that day".
+    #[test]
+    fn the_until_day_is_kept_whole() {
+        assert!(before_until("2026-06-21 00:00", "2026-06-21"));
+        assert!(before_until("2026-06-21 23:59", "2026-06-21"));
+        assert!(!before_until("2026-06-22 00:00", "2026-06-21"));
+    }
+
+    #[test]
+    fn the_two_cutoffs_bracket_a_single_day() {
+        let day = |ts: &str| after_since(ts, "2026-06-21") && before_until(ts, "2026-06-21");
+        assert!(day("2026-06-21 12:00"));
+        assert!(!day("2026-06-20 23:59"));
+        assert!(!day("2026-06-22 00:01"));
     }
 }

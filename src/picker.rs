@@ -26,6 +26,7 @@ pub fn save(path: &Path, o: &Opts) {
         "project": o.project,
         "role": o.role,
         "since": o.since,
+        "until": o.until,
         "tools": o.tools,
         "thinking": o.thinking,
         "no_sub": o.no_sub,
@@ -56,6 +57,7 @@ pub fn load(path: &Path) -> Opts {
         project: s("project", d.project),
         role: s("role", d.role),
         since: s("since", d.since),
+        until: s("until", d.until),
         tools: b("tools", d.tools),
         thinking: b("thinking", d.thinking),
         no_sub: b("no_sub", d.no_sub),
@@ -120,7 +122,12 @@ pub fn header(path: &Path, query: &str) -> String {
     if o.fixed {
         active.push("literal".into());
     }
-    for (name, value) in [("role", &o.role), ("project", &o.project), ("since", &o.since)] {
+    for (name, value) in [
+        ("role", &o.role),
+        ("project", &o.project),
+        ("since", &o.since),
+        ("until", &o.until),
+    ] {
         if !value.is_empty() {
             active.push(format!("{name}:{value}"));
         }

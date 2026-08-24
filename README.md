@@ -7,6 +7,7 @@ cs 'stripe webhook'              # opens the picker on a terminal; prints rows w
 cs -F 'useState('                # match the pattern literally, not as a regex
 cs -p 'rate limit'               # only your own prompts (history.jsonl)
 cs -C 2 'ALTER TABLE'            # with two lines of surrounding context
+cs -s last-week 'flaky test'     # a date you do not have to look up
 cs show 3f2a1b9c                 # one session as a readable transcript
 cs show 3f2a1b9c -r user         # only the half of it you typed
 cs sessions dashqard             # sessions newest-first, with their opening prompt
@@ -115,6 +116,23 @@ returns a very large result set while containing metacharacters says so on
 stderr. A pattern that is not valid regex at all (`useState(`) is retried as a
 literal rather than rejected, and the substitution is reported.
 
+## Narrowing
+
+`-s/--since` and `-u/--until` bound a range from either end, and neither needs a
+date you have to look up:
+
+```sh
+cs -s 7d 'timeout'               # the last week
+cs -s yesterday -t 'migrate'
+cs -s 2026-08-01 -u 2026-08-01 'ALTER TABLE'   # one day, both ends inclusive
+```
+
+`today`, `yesterday`, `last-week`, `last-month`, `Nd`, `Nw`, `Nm`, `Ny` and a
+plain `YYYY-MM-DD` are all accepted; months step by calendar, so `1m` from the
+31st lands on the last day of the previous month rather than somewhere in the
+middle of it. A spec that names no real day is rejected at parse time rather
+than quietly matching nothing — `-u 2026-02-30` is an error, not an empty result.
+
 ## Install
 
 ```sh
@@ -208,7 +226,7 @@ avoids the work.
 cargo test
 ```
 
-215 tests, needing no network and no fixtures beyond what the suite creates and
+231 tests, needing no network and no fixtures beyond what the suite creates and
 cleans up itself:
 
 - **Unit tests** sit inline in each module and cover the pure helpers —
@@ -217,8 +235,8 @@ cleans up itself:
   middle-elision, session grouping, the picker's state transitions, the fzf
   command line the picker is launched with, the transcript divider's geometry in
   both colour and plain form, which filters an empty result probes, which
-  prompts a date cutoff keeps, and the count-gutter alignment that survives
-  having escape sequences in the line.
+  prompts a date cutoff keeps, date specs resolved against a fixed "today", and
+  the count-gutter alignment that survives having escape sequences in the line.
 - **Integration tests** (`tests/cli.rs`) build a synthetic corpus in a temp
   directory, point the binary at it with `CLAUDE_HOME`, and assert on real
   output. The fixture is hand-written, so the suite carries no personal data.
@@ -243,6 +261,7 @@ makes the suite fail.
 | | |
 |---|---|
 | `src/main.rs` | CLI dispatch |
+| `src/dates.rs` | `--since` / `--until` specs, absolute and relative |
 | `src/cli.rs` | argument parsing, usage text |
 | `src/scan.rs` | parallel search engine and the prefilter |
 | `src/record.rs` | transcript record model, block flattening |

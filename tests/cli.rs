@@ -676,6 +676,47 @@ fn prompts_combine_the_since_and_project_filters() {
     assert_eq!(r.code, 1, "alpha's only prompt predates the cutoff: {}", r.stdout);
 }
 
+// ------------------------------------------------------------------ date range
+
+#[test]
+fn until_bounds_the_far_end_of_a_range() {
+    let c = Corpus::new();
+    // Alpha's "needle" survivors are the thinking block and the subagent line;
+    // its meta record is never searchable.
+    assert_eq!(c.run(&["-u", "2026-07-31", "needle"]).count(), 2, "alpha only");
+    let both = c.run(&["-s", "2026-08-01", "-u", "2026-08-01", "needle"]);
+    assert_eq!(both.count(), 1, "one day at both ends: {}", both.stdout);
+    assert!(both.stdout.contains("second needle line"), "{}", both.stdout);
+}
+
+/// The named day is included whole; a timestamp inside it sorts after the bare
+/// date it is being compared with.
+#[test]
+fn the_until_day_is_kept_whole() {
+    let c = Corpus::new();
+    assert_eq!(c.run(&["-u", "2026-08-02", "beta project needle"]).count(), 1);
+    assert_eq!(c.run(&["-u", "2026-08-01", "beta project needle"]).code, 1);
+}
+
+#[test]
+fn relative_dates_resolve_against_today() {
+    let c = Corpus::new();
+    // The fixture is dated 2026, so "everything since a century ago" is all of
+    // it and "since today" is none of it, whenever the suite happens to run.
+    assert!(c.run(&["-s", "99y", "needle"]).count() >= 4);
+    assert_eq!(c.run(&["-s", "today", "needle"]).code, 1);
+}
+
+#[test]
+fn a_bad_date_is_rejected_rather_than_matching_nothing() {
+    let c = Corpus::new();
+    let r = c.run(&["-s", "soonish", "needle"]);
+    assert_eq!(r.code, 2);
+    assert!(r.stderr.contains("soonish"), "stderr: {}", r.stderr);
+    assert!(r.stderr.contains("yesterday"), "the error should list the forms: {}", r.stderr);
+    assert_eq!(c.run(&["-u", "2026-02-30", "needle"]).code, 2, "a date that names no day");
+}
+
 // ------------------------------------------------------------------------ cli
 
 // --------------------------------------------------------------- cs projects

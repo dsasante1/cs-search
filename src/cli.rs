@@ -26,7 +26,9 @@ SEARCH
   -F, --fixed               match the pattern literally, not as a regex
   -P, --project <substr>    only sessions whose cwd contains substr
   -r, --role <user|assistant>
-  -s, --since <YYYY-MM-DD>  only messages on/after this date
+  -s, --since <date>        only messages on/after this date
+  -u, --until <date>        only messages on/before this date
+                            dates: YYYY-MM-DD, today, yesterday, 7d, 2w, last-week
   -t, --tools               also search tool calls and tool results (noisy)
   -T, --no-thinking         skip thinking blocks
   -n, --no-sub              skip subagent (sidechain) messages
@@ -53,7 +55,7 @@ EXAMPLES
   cs 'stripe webhook'
   cs -F 'useState('
   cs -P dashqard -r user 'rate limit'
-  cs -s 2026-07-01 -t 'ALTER TABLE'
+  cs -s last-week 'flaky test'
   cs -C 2 'ALTER TABLE'
 "#;
 
@@ -64,6 +66,8 @@ pub struct Opts {
     pub tools: bool,
     pub thinking: bool,
     pub since: String,
+    /// `--until`: the far end of the range `--since` opens.
+    pub until: String,
     pub chars: usize,
     pub files_only: bool,
     pub no_sub: bool,
@@ -91,6 +95,7 @@ impl Default for Opts {
             tools: false,
             thinking: true,
             since: String::new(),
+            until: String::new(),
             chars: 240,
             files_only: false,
             no_sub: false,
@@ -171,7 +176,14 @@ pub fn parse(args: &[OsString]) -> Result<Parsed, String> {
         match arg {
             Short('P') | Long("project") => o.project = value(&mut p, &name)?.to_lowercase(),
             Short('r') | Long("role") => o.role = value(&mut p, &name)?,
-            Short('s') | Long("since") => o.since = value(&mut p, &name)?,
+            Short('s') | Long("since") => {
+                o.since = crate::dates::resolve(&value(&mut p, &name)?)
+                    .map_err(|e| format!("{name}: {e}"))?
+            }
+            Short('u') | Long("until") => {
+                o.until = crate::dates::resolve(&value(&mut p, &name)?)
+                    .map_err(|e| format!("{name}: {e}"))?
+            }
             Short('c') | Long("chars") => o.chars = count(&mut p, "--chars")?,
             Short('j') | Long("jobs") => o.jobs = count(&mut p, "--jobs")?.max(1),
             Short('C') | Long("context") => {
