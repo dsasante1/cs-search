@@ -18,10 +18,16 @@ USAGE
                             -r user|assistant reads one side of it only
   cs sessions [substr]      list sessions newest-first, by title
   cs files <pattern>        which files were edited or read, and when
+  cs history <pattern>      when a topic started, when it stopped, and where
+                            --sessions lists the sessions, oldest first
+  cs activity               sessions and messages per day, and per project
+  cs handoff <session-id>   where a session left off: files, tokens, last turns
+  cs related <session-id>   sessions sharing this one's distinctive words
+                            --limit <n> to see more than ten
   cs export <session-id>    write one session out: --format md|html|json
   cs projects [substr]      list projects with session counts
-  cs stats [-P proj]        models, tokens and cache use across the corpus
-                            --prices <file> adds a cost estimate
+  cs stats [session-id]     models, tokens and cache use; one session or all
+                            -P <proj> scopes it, --prices <file> adds cost
   cs resume <session-id>    reopen that session in Claude Code
   cs completions <shell>    completion script for bash, zsh or fish
 
@@ -31,6 +37,7 @@ SEARCH
   -F, --fixed               match the pattern literally, not as a regex
   -P, --project <substr>    only sessions whose cwd contains substr
   -r, --role <user|assistant>
+  -q, --questions           only lines that ask: a ? ending a clause
   -s, --since <date>        only messages on/after this date
   -u, --until <date>        only messages on/before this date
                             dates: YYYY-MM-DD, today, yesterday, 7d, last-week
@@ -49,6 +56,7 @@ OUTPUT
       --plain               print results instead of opening the picker
       --group               group matches by session (the default on a terminal)
       --no-group            one line per match, ungrouped
+      --chrono              one line per session, oldest first
       --json                one JSON object per match, one per line
       --preview <right|bottom>  where the picker draws the transcript
   -j, --jobs <n>            worker threads (default: CPU count)
@@ -64,6 +72,7 @@ EXAMPLES
     cs 'stripe webhook'                  # the picker; rows when piped
     cs -F 'useState('                    # literally, not as a regex
     cs -P dashqard -r user 'rate limit'  # your own words, in one project
+    cs -p -q 'cloud sql'                 # what you asked, not what you told
     cs -t 'ALTER TABLE'                  # tool calls and their output too
     cs -C 2 timeout --plain              # two lines either side, no picker
 
@@ -72,17 +81,22 @@ EXAMPLES
     cs -s 2026-08-01 -u 2026-08-01 rls   # a single day, both ends
     cs -b ui-overhaul 'divider'          # one git branch
     cs --thread 'the fix'                # with the turns either side
+    cs 'rate limit' --chrono             # one line per session, oldest first
 
-  Reading a session
+  One session at a time
     cs sessions dashqard                 # by title, newest first
     cs show 3f2a1b9c                     # as a transcript
-    cs show 3f2a1b9c -r user             # only the half you typed
+    cs handoff 3f2a1b9c                  # where you left off
+    cs related 3f2a1b9c                  # what else was about this
+    cs stats 3f2a1b9c --prices p.json    # what this one cost
     cs export 3f2a1b9c --format md       # as a document, on stdout
     cs resume 3f2a1b9c                   # reopen it in Claude Code
 
   Across the corpus
     cs projects                          # what -P can be given
     cs files 'settings/base.py'          # which sessions touched a file
+    cs history 'django-celery'           # when it started, when it stopped
+    cs activity -s 30d                   # where the month went
     cs stats -P dashqard -s last-month   # models, tokens, cache
 
   In a script
@@ -122,6 +136,12 @@ pub struct Opts {
     /// `--thread`: surround a match with the turns either side of it rather
     /// than with more lines of the message it sits in.
     pub thread: bool,
+    /// `-q`: keep only lines that ask something. See `record::is_question` for
+    /// what counts, which is deliberately less than "everything interrogative".
+    pub questions: bool,
+    /// One session, by id prefix. Not a search flag — `stats` and `handoff`
+    /// take an id positionally and narrow the walk to the file it names.
+    pub session: String,
 }
 
 impl Default for Opts {
@@ -139,9 +159,7 @@ impl Default for Opts {
             no_sub: false,
             prompts: false,
             interactive: false,
-            jobs: std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(4),
+            jobs: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4),
             pattern: String::new(),
             fixed: false,
             plain: false,
@@ -151,6 +169,8 @@ impl Default for Opts {
             before: 0,
             after: 0,
             thread: false,
+            questions: false,
+            session: String::new(),
         }
     }
 }
@@ -163,6 +183,9 @@ pub enum Grouping {
     Auto,
     Always,
     Never,
+    /// `--chrono`: one line per session, oldest first. A third rendering rather
+    /// than a degree of the first two, so it answers `applies` with a flat no.
+    Chrono,
 }
 
 impl Grouping {
@@ -170,8 +193,12 @@ impl Grouping {
         match self {
             Grouping::Auto => tty,
             Grouping::Always => true,
-            Grouping::Never => false,
+            Grouping::Never | Grouping::Chrono => false,
         }
+    }
+
+    pub fn chrono(self) -> bool {
+        matches!(self, Grouping::Chrono)
     }
 }
 
@@ -190,16 +217,18 @@ fn value(p: &mut lexopt::Parser, flag: &str) -> Result<String, String> {
 
 fn count(p: &mut lexopt::Parser, flag: &str) -> Result<usize, String> {
     let v = value(p, flag)?;
-    v.parse()
-        .map_err(|_| format!("bad {flag} value: {v}"))
+    v.parse().map_err(|_| format!("bad {flag} value: {v}"))
 }
 
 pub fn parse(args: &[OsString]) -> Result<Parsed, String> {
     let mut o = Opts::default();
     let mut p = lexopt::Parser::from_args(args.iter());
 
-    // Consume flags up to the first bare word, matching the original loop:
-    // the pattern ends option parsing, so anything after it is left alone.
+    // Flags are read wherever they appear. The shell version stopped at the
+    // first bare word, which meant `cs database --json` searched for `database`
+    // and dropped the flag without a word — including in four of this program's
+    // own documented examples. The pattern is still the first bare word; a
+    // second one is an error rather than something else silently ignored.
     loop {
         let arg = match p.next() {
             Ok(Some(a)) => a,
@@ -238,20 +267,29 @@ pub fn parse(args: &[OsString]) -> Result<Parsed, String> {
             Short('l') | Long("files") => o.files_only = true,
             Short('n') | Long("no-sub") => o.no_sub = true,
             Short('p') | Long("prompts") => o.prompts = true,
+            Short('q') | Long("questions") => o.questions = true,
             Short('i') | Long("interactive") => o.interactive = true,
             Short('F') | Long("fixed") => o.fixed = true,
             Long("plain") => o.plain = true,
             Long("group") => o.grouping = Grouping::Always,
             Long("no-group") => o.grouping = Grouping::Never,
+            Long("chrono") => o.grouping = Grouping::Chrono,
             Long("json") => o.json = true,
             Long("thread") => o.thread = true,
             Long("preview") => o.preview = value(&mut p, "--preview")?,
             Short('h') | Long("help") => return Ok(Parsed::Help),
             Value(v) => {
-                o.pattern = v.into_string().map_err(|v| {
-                    format!("pattern is not valid UTF-8: {}", v.to_string_lossy())
-                })?;
-                break;
+                let text = v
+                    .into_string()
+                    .map_err(|v| format!("pattern is not valid UTF-8: {}", v.to_string_lossy()))?;
+                if !o.pattern.is_empty() {
+                    return Err(format!(
+                        "unexpected argument '{text}' after the pattern '{}' — \
+                         quote them if they are one pattern",
+                        o.pattern
+                    ));
+                }
+                o.pattern = text;
             }
             _ => return Err(format!("unknown option: {name}")),
         }
@@ -431,12 +469,35 @@ mod tests {
         assert_eq!(opts(&["-"]).pattern, "-");
     }
 
+    /// The shell version stopped reading flags at the pattern, so
+    /// `cs database --json` quietly searched without the flag — as four of the
+    /// examples shipped with this program did.
     #[test]
-    fn flags_after_the_pattern_are_left_alone() {
-        // The pattern ends option parsing, as in the shell version.
-        let o = opts(&["needle", "-t"]);
-        assert_eq!(o.pattern, "needle");
-        assert!(!o.tools);
+    fn flags_are_read_on_either_side_of_the_pattern() {
+        let after = opts(&["needle", "-t", "--json"]);
+        assert_eq!(after.pattern, "needle");
+        assert!(after.tools && after.json);
+
+        let before = opts(&["-t", "--json", "needle"]);
+        assert_eq!(before.pattern, "needle");
+        assert!(before.tools && before.json);
+    }
+
+    /// Two bare words used to mean the first one and a silence. Whatever the
+    /// user meant, it was not that.
+    #[test]
+    fn a_second_bare_word_is_an_error_not_an_argument_dropped() {
+        let e = err(&["stripe", "webhook"]);
+        assert!(e.contains("unexpected argument \'webhook\'"), "{e}");
+        assert!(e.contains("quote them"), "the fix, not just the complaint: {e}");
+    }
+
+    /// A flag's own value is not a second pattern.
+    #[test]
+    fn a_flag_after_the_pattern_still_takes_its_value() {
+        let o = opts(&["needle", "-P", "dashqard", "-C", "2"]);
+        assert_eq!(o.project, "dashqard");
+        assert_eq!(o.before, 2);
     }
 
     #[test]
@@ -483,9 +544,31 @@ mod tests {
     #[test]
     fn usage_documents_every_flag_the_parser_accepts() {
         for flag in [
-            "-P", "-r", "-t", "-T", "-s", "-c", "-l", "-n", "-j", "-h", "-p", "-i",
-            "-F", "-C", "-A", "-B", "--plain", "--group", "--no-group", "--json",
+            "-P",
+            "-r",
+            "-t",
+            "-T",
+            "-s",
+            "-c",
+            "-l",
+            "-n",
+            "-j",
+            "-h",
+            "-p",
+            "-i",
+            "-F",
+            "-C",
+            "-A",
+            "-B",
+            "-q",
+            "--plain",
+            "--group",
+            "--no-group",
+            "--chrono",
+            "--json",
             "--preview",
+            "--sessions",
+            "--limit",
         ] {
             assert!(USAGE.contains(flag), "usage text is missing {flag}");
         }
@@ -502,10 +585,7 @@ mod tests {
             if !flag.starts_with('-') || flag.len() < 2 {
                 continue;
             }
-            assert!(
-                described.contains(flag),
-                "{flag} is used in an example but never documented"
-            );
+            assert!(described.contains(flag), "{flag} is used in an example but never documented");
         }
     }
 
@@ -548,7 +628,20 @@ mod tests {
     #[test]
     fn every_subcommand_appears_in_an_example() {
         let examples = USAGE.split("EXAMPLES").nth(1).expect("usage has examples");
-        for sub in ["show", "sessions", "files", "export", "projects", "stats", "resume", "completions"] {
+        for sub in [
+            "show",
+            "sessions",
+            "files",
+            "export",
+            "projects",
+            "stats",
+            "resume",
+            "completions",
+            "history",
+            "activity",
+            "handoff",
+            "related",
+        ] {
             assert!(examples.contains(sub), "no example uses {sub}");
         }
     }
@@ -558,17 +651,15 @@ mod tests {
     #[test]
     fn the_usage_fits_a_standard_terminal() {
         for line in USAGE.lines() {
-            assert!(
-                line.chars().count() <= 80,
-                "{} columns: {line}",
-                line.chars().count()
-            );
+            assert!(line.chars().count() <= 80, "{} columns: {line}", line.chars().count());
         }
     }
 
     #[test]
     fn usage_documents_every_subcommand() {
-        for sub in ["show", "sessions", "projects", "resume"] {
+        for sub in
+            ["show", "sessions", "projects", "resume", "history", "activity", "handoff", "related"]
+        {
             assert!(USAGE.contains(&format!("cs {sub}")), "usage is missing {sub}");
         }
     }

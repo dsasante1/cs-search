@@ -93,7 +93,15 @@ fn span(first: &mut String, last: &mut String, ts: &str) {
 }
 
 pub fn collect(opts: &Opts) -> Stats {
-    let queue = Arc::new(Mutex::new(scan::transcripts()));
+    // A session id narrows the walk to the one file that holds it rather than
+    // filtering every record in the corpus against it: the transcripts are
+    // named by session, so the answer is in the filename.
+    let files = if opts.session.is_empty() {
+        scan::transcripts()
+    } else {
+        crate::show::resolve(&opts.session)
+    };
+    let queue = Arc::new(Mutex::new(files));
     let out: Arc<Mutex<Stats>> = Arc::new(Mutex::new(Stats::default()));
 
     std::thread::scope(|s| {
@@ -117,6 +125,8 @@ pub fn collect(opts: &Opts) -> Stats {
 
 fn read(path: &Path, opts: &Opts, into: &mut Stats) {
     let Ok(fh) = File::open(path) else { return };
+    // One label for the whole transcript: see `projects::label`.
+    let project = crate::projects::label(path).unwrap_or_else(|| crate::projects::UNKNOWN.into());
     for line in BufReader::with_capacity(1 << 20, fh).lines().map_while(Result::ok) {
         let Ok(v) = serde_json::from_str::<Value>(&line) else {
             continue;
@@ -139,11 +149,7 @@ fn read(path: &Path, opts: &Opts, into: &mut Stats) {
         }
 
         into.sessions.insert(r.session_id().to_owned());
-        let project = r.cwd().rsplit('/').next().unwrap_or("?");
-        *into
-            .projects
-            .entry(if project.is_empty() { "?" } else { project }.to_owned())
-            .or_default() += 1;
+        *into.projects.entry(project.clone()).or_default() += 1;
         span(&mut into.first, &mut into.last, dates::day_of(r.timestamp()));
 
         if r.kind() == "user" {
@@ -154,11 +160,8 @@ fn read(path: &Path, opts: &Opts, into: &mut Stats) {
 
         let t = usage(&v);
         into.tokens.add(&t);
-        let model = v
-            .pointer("/message/model")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown")
-            .to_owned();
+        let model =
+            v.pointer("/message/model").and_then(Value::as_str).unwrap_or("unknown").to_owned();
         let e = into.models.entry(model).or_default();
         e.0 += 1;
         e.1.add(&t);
@@ -167,7 +170,7 @@ fn read(path: &Path, opts: &Opts, into: &mut Stats) {
 
 /// The usage block, read defensively: it is an internal field that has gained
 /// members over time, and a missing one means zero rather than an error.
-fn usage(v: &Value) -> Tokens {
+pub fn usage(v: &Value) -> Tokens {
     let Some(u) = v.pointer("/message/usage") else {
         return Tokens::default();
     };
@@ -245,12 +248,15 @@ pub fn cost(stats: &Stats, prices: &Prices) -> (f64, Vec<String>) {
 const TOP: usize = 8;
 
 pub fn report(w: &mut impl Write, s: &Stats, prices: Option<&Prices>) {
+    let n = |count: usize, word: &str| {
+        format!("{} {word}{}", thousands(count as u64), if count == 1 { "" } else { "s" })
+    };
     let _ = writeln!(
         w,
-        "{} sessions · {} messages · {} projects",
-        thousands(s.sessions.len() as u64),
-        thousands(s.messages() as u64),
-        s.projects.len()
+        "{} · {} · {}",
+        n(s.sessions.len(), "session"),
+        n(s.messages(), "message"),
+        n(s.projects.len(), "project"),
     );
     if !s.first.is_empty() {
         let _ = writeln!(w, "{} → {}", s.first, s.last);
@@ -266,7 +272,11 @@ pub fn report(w: &mut impl Write, s: &Stats, prices: Option<&Prices>) {
     models.sort_by(|a, b| b.1 .0.cmp(&a.1 .0).then_with(|| a.0.cmp(b.0)));
     if !models.is_empty() {
         let width = models.iter().map(|(m, _)| m.chars().count()).max().unwrap_or(5).min(34);
-        let _ = writeln!(w, "\nMODEL{} replies    input   output    cached", " ".repeat(width.saturating_sub(5)));
+        let _ = writeln!(
+            w,
+            "\nMODEL{} replies    input   output    cached",
+            " ".repeat(width.saturating_sub(5))
+        );
         for (model, (n, t)) in &models {
             let _ = writeln!(
                 w,
@@ -326,11 +336,8 @@ pub fn report_json(w: &mut impl Write, s: &Stats, prices: Option<&Prices>) {
         .collect();
     models.sort_by_key(|m| m["model"].as_str().unwrap_or("").to_owned());
 
-    let mut projects: Vec<Value> = s
-        .projects
-        .iter()
-        .map(|(name, n)| json!({"project": name, "messages": n}))
-        .collect();
+    let mut projects: Vec<Value> =
+        s.projects.iter().map(|(name, n)| json!({"project": name, "messages": n})).collect();
     projects.sort_by_key(|p| p["project"].as_str().unwrap_or("").to_owned());
 
     let mut out = json!({
@@ -454,9 +461,18 @@ mod tests {
 
     #[test]
     fn merging_widens_the_date_range_from_both_ends() {
-        let mut a = Stats { first: "2026-05-01".into(), last: "2026-05-09".into(), ..Default::default() };
-        a.merge(Stats { first: "2026-04-01".into(), last: "2026-04-02".into(), ..Default::default() });
-        a.merge(Stats { first: "2026-09-01".into(), last: "2026-09-02".into(), ..Default::default() });
+        let mut a =
+            Stats { first: "2026-05-01".into(), last: "2026-05-09".into(), ..Default::default() };
+        a.merge(Stats {
+            first: "2026-04-01".into(),
+            last: "2026-04-02".into(),
+            ..Default::default()
+        });
+        a.merge(Stats {
+            first: "2026-09-01".into(),
+            last: "2026-09-02".into(),
+            ..Default::default()
+        });
         assert_eq!((a.first.as_str(), a.last.as_str()), ("2026-04-01", "2026-09-02"));
     }
 

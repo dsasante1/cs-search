@@ -17,6 +17,10 @@ pub const SUBCOMMANDS: &[&str] = &[
     "show",
     "sessions",
     "files",
+    "history",
+    "activity",
+    "handoff",
+    "related",
     "export",
     "projects",
     "stats",
@@ -28,30 +32,51 @@ pub const SUBCOMMANDS: &[&str] = &[
 /// there and forgotten here simply fails to complete, which is why the test
 /// below reads them out of the usage text instead of trusting this list.
 pub const FLAGS: &[&str] = &[
-    "-F", "--fixed",
-    "-P", "--project",
-    "-r", "--role",
-    "-s", "--since",
-    "-u", "--until",
-    "-b", "--branch",
-    "-t", "--tools",
-    "-T", "--no-thinking",
-    "-n", "--no-sub",
-    "-C", "--context",
-    "-A", "--after",
-    "-B", "--before",
-    "-c", "--chars",
-    "-l", "--files",
-    "-p", "--prompts",
-    "-i", "--interactive",
-    "-j", "--jobs",
+    "-F",
+    "--fixed",
+    "-P",
+    "--project",
+    "-r",
+    "--role",
+    "-s",
+    "--since",
+    "-u",
+    "--until",
+    "-b",
+    "--branch",
+    "-t",
+    "--tools",
+    "-T",
+    "--no-thinking",
+    "-n",
+    "--no-sub",
+    "-C",
+    "--context",
+    "-A",
+    "--after",
+    "-B",
+    "--before",
+    "-c",
+    "--chars",
+    "-l",
+    "--files",
+    "-p",
+    "--prompts",
+    "-q",
+    "--questions",
+    "-i",
+    "--interactive",
+    "-j",
+    "--jobs",
     "--thread",
     "--plain",
     "--group",
     "--no-group",
+    "--chrono",
     "--json",
     "--preview",
-    "-h", "--help",
+    "-h",
+    "--help",
 ];
 
 pub fn write(w: &mut impl Write, shell: &str) -> Result<(), String> {
@@ -88,7 +113,7 @@ _cs() {{
 
   # An id is only wanted where one is taken, and listing them is a scan.
   case "$sub" in
-    show|resume|export)
+    show|resume|export|handoff|related|stats)
       if [ "$COMP_CWORD" -eq 2 ]; then
         COMPREPLY=($(compgen -W "$(_cs_sessions)" -- "$cur")); return
       fi;;
@@ -137,7 +162,7 @@ _cs() {{
     first) _describe -t commands 'cs command' '({subs})' ;;
     rest)
       case $words[1] in
-        show|resume|export) _cs_sessions ;;
+        show|resume|export|handoff|related|stats) _cs_sessions ;;
         completions) _values 'shell' bash zsh fish ;;
       esac
       _arguments \
@@ -173,12 +198,10 @@ fn fish() -> String {
     out.push_str("\nend\n\n");
 
     for (name, help) in SUBCOMMAND_HELP {
-        out.push_str(&format!(
-            "complete -c cs -n __cs_no_sub -a {name} -d '{help}'\n"
-        ));
+        out.push_str(&format!("complete -c cs -n __cs_no_sub -a {name} -d {}\n", fish_quote(help)));
     }
     out.push_str(
-        "\ncomplete -c cs -n '__fish_seen_subcommand_from show resume export' -f -a '(__cs_sessions)'\n\
+        "\ncomplete -c cs -n '__fish_seen_subcommand_from show resume export handoff related stats' -f -a '(__cs_sessions)'\n\
          complete -c cs -n '__fish_seen_subcommand_from completions' -f -a 'bash zsh fish'\n\n",
     );
     out.push_str(
@@ -202,6 +225,15 @@ fn fish() -> String {
     out
 }
 
+/// A fish single-quoted string, with the two characters fish treats specially
+/// inside one escaped. Descriptions are English prose and one of them holds an
+/// apostrophe, which without this closed the string and made the whole script
+/// unparseable — fish abandons the file at the first syntax error, so a single
+/// unescaped quote cost every completion, not just its own.
+fn fish_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\\', r"\\").replace('\'', r"\'"))
+}
+
 /// The relative date words worth offering; the absolute form cannot be
 /// completed and does not need to be.
 const DATE_WORDS: &str = "today yesterday last-week last-month 7d 14d 2w 3m 1y";
@@ -210,6 +242,10 @@ const SUBCOMMAND_HELP: &[(&str, &str)] = &[
     ("show", "print one session as a transcript"),
     ("sessions", "list sessions, newest first"),
     ("files", "which files were edited or read"),
+    ("history", "when a topic started and stopped"),
+    ("activity", "sessions and messages per day"),
+    ("handoff", "where a session left off"),
+    ("related", "sessions sharing this one's words"),
     ("export", "write a session out as md, html or json"),
     ("projects", "list projects"),
     ("stats", "models, tokens and cache use"),
@@ -220,6 +256,7 @@ const SUBCOMMAND_HELP: &[(&str, &str)] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
 
     fn script(shell: &str) -> String {
         let mut buf: Vec<u8> = Vec::new();
@@ -275,6 +312,51 @@ mod tests {
         }
     }
 
+    /// The scripts are generated text handed straight to a shell, so the thing
+    /// worth checking is that the shell can read them at all. A description
+    /// holding an apostrophe once closed fish's quoting early and cost every
+    /// completion in the file, which no amount of "does it mention `related`"
+    /// would have caught.
+    #[test]
+    fn every_script_parses_in_the_shell_it_is_for() {
+        for (shell, args) in
+            [("bash", &["-n"][..]), ("zsh", &["-n"][..]), ("fish", &["--no-config", "-n"][..])]
+        {
+            let Some(path) = write_temp(&script(shell), shell) else { continue };
+            let Ok(out) = Command::new(shell).args(args).arg(&path).output() else {
+                let _ = std::fs::remove_file(&path);
+                continue; // shell not installed: nothing to check against
+            };
+            let _ = std::fs::remove_file(&path);
+            assert!(
+                out.status.success(),
+                "{shell} cannot parse its own completion script:\n{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+    }
+
+    /// The same check without needing a shell installed, so CI catches an
+    /// unescaped quote even where only one of the three is present.
+    #[test]
+    fn single_quotes_stay_balanced_on_every_line() {
+        for shell in ["bash", "zsh", "fish"] {
+            for (n, line) in script(shell).lines().enumerate() {
+                // An escaped quote is not a delimiter, so it cannot unbalance
+                // the line; count only the ones that open or close a string.
+                let bare = line.replace(r"\'", "").replace(r"'\''", "").matches('\'').count();
+                assert_eq!(bare % 2, 0, "{shell} line {}: {line}", n + 1);
+            }
+        }
+    }
+
+    fn write_temp(body: &str, shell: &str) -> Option<std::path::PathBuf> {
+        let path =
+            std::env::temp_dir().join(format!("cs-comp-test-{}.{shell}", std::process::id()));
+        std::fs::write(&path, body).ok()?;
+        Some(path)
+    }
+
     /// Each script says how to install itself: printed to a terminal with no
     /// explanation, a completion script looks like a mistake.
     #[test]
@@ -298,8 +380,17 @@ mod tests {
             .collect();
         for flag in documented {
             // Subcommand-only flags live on their own commands, not on a search.
-            if ["--format", "--prices", "--highlight", "--at", "--color", "--no-pager"]
-                .contains(&flag)
+            if [
+                "--format",
+                "--prices",
+                "--highlight",
+                "--at",
+                "--color",
+                "--no-pager",
+                "--sessions",
+                "--limit",
+            ]
+            .contains(&flag)
             {
                 continue;
             }

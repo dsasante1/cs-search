@@ -72,10 +72,7 @@ fn first_prompt(path: &Path) -> Option<(SystemTime, PathBuf, Row)> {
     let mtime = std::fs::metadata(path).ok()?.modified().ok()?;
     let fh = File::open(path).ok()?;
 
-    for line in BufReader::with_capacity(1 << 20, fh)
-        .lines()
-        .map_while(Result::ok)
-        .take(SCAN_LINES)
+    for line in BufReader::with_capacity(1 << 20, fh).lines().map_while(Result::ok).take(SCAN_LINES)
     {
         let Ok(v) = serde_json::from_str::<Value>(&line) else {
             continue;
@@ -98,9 +95,7 @@ fn first_prompt(path: &Path) -> Option<(SystemTime, PathBuf, Row)> {
             mtime,
             path.to_path_buf(),
             Row {
-                ts: DateTime::<Local>::from(mtime)
-                    .format("%Y-%m-%d %H:%M")
-                    .to_string(),
+                ts: DateTime::<Local>::from(mtime).format("%Y-%m-%d %H:%M").to_string(),
                 project: if project.is_empty() { "?" } else { project }.to_owned(),
                 role: "sess".to_owned(),
                 sid: take_chars(r.session_id(), 8).to_owned(),
@@ -118,7 +113,7 @@ fn first_prompt(path: &Path) -> Option<(SystemTime, PathBuf, Row)> {
 /// Read from the end rather than by scanning, so a 38 MB transcript costs the
 /// same as a small one. Starting mid-file leaves a partial first line, which is
 /// dropped rather than parsed.
-fn last_title(path: &Path) -> Option<String> {
+pub fn last_title(path: &Path) -> Option<String> {
     let mut fh = File::open(path).ok()?;
     let len = fh.metadata().ok()?.len();
     let from = len.saturating_sub(TAIL_BYTES);
@@ -182,7 +177,9 @@ mod tests {
     fn the_last_title_wins() {
         let mut buf = TITLE.to_vec();
         buf.push(b'\n');
-        buf.extend_from_slice(br#"{"type":"ai-title","aiTitle":"Search it faster","sessionId":"a"}"#);
+        buf.extend_from_slice(
+            br#"{"type":"ai-title","aiTitle":"Search it faster","sessionId":"a"}"#,
+        );
         assert_eq!(title_in(&buf, false).as_deref(), Some("Search it faster"));
     }
 

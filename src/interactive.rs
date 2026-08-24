@@ -20,9 +20,8 @@ use std::process::{Command, Stdio};
 /// `None` means fzf is not installed; the caller decides whether that is an
 /// error (`-i` was asked for) or a reason to print results instead.
 pub fn run(rows: &[Row], opts: &Opts, re: &Regex) -> Option<i32> {
-    let exe = std::env::current_exe()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| "cs".into());
+    let exe =
+        std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "cs".into());
     let state = picker::state_path();
     picker::save(&state, opts);
 
@@ -59,12 +58,7 @@ pub fn run(rows: &[Row], opts: &Opts, re: &Regex) -> Option<i32> {
     let jump = show::pattern(&query);
     Some(show::run_with(
         sid,
-        &show::ShowOpts {
-            highlight: jump.clone(),
-            at: jump,
-            pager: true,
-            ..Default::default()
-        },
+        &show::ShowOpts { highlight: jump.clone(), at: jump, pager: true, ..Default::default() },
     ))
 }
 
@@ -208,11 +202,7 @@ mod tests {
 
     #[test]
     fn interpolated_paths_are_shell_quoted() {
-        let odd = fzf_args(
-            "/home/some one/bin/cs",
-            Path::new("/tmp/state.json"),
-            &Opts::default(),
-        );
+        let odd = fzf_args("/home/some one/bin/cs", Path::new("/tmp/state.json"), &Opts::default());
         let preview = odd.iter().find(|a| a.starts_with("--preview=")).unwrap();
         assert!(preview.contains("'/home/some one/bin/cs'"), "{preview}");
     }
@@ -221,5 +211,4 @@ mod tests {
     fn quote_survives_an_embedded_single_quote() {
         assert_eq!(quote("it's"), r"'it'\''s'");
     }
-
 }

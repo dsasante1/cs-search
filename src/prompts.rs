@@ -31,6 +31,12 @@ pub fn run(opts: &Opts, re: &Regex) -> Result<Vec<Row>, String> {
         if !re.is_match(display) {
             continue;
         }
+        // A prompt is one record however many lines were typed into it, so the
+        // whole thing is the unit here — unlike a transcript line, which `scan`
+        // tests one at a time.
+        if opts.questions && !crate::record::is_question(display) {
+            continue;
+        }
         let project = v.get("project").and_then(Value::as_str).unwrap_or("");
         if !opts.project.is_empty() && !project.to_lowercase().contains(&opts.project) {
             continue;
@@ -50,6 +56,7 @@ pub fn run(opts: &Opts, re: &Regex) -> Result<Vec<Row>, String> {
                 let p = project.rsplit('/').next().unwrap_or("?");
                 if p.is_empty() { "?" } else { p }.to_owned()
             },
+            precise: precise(&v),
             role: "you".to_owned(),
             sid: take_chars(sid, 8).to_owned(),
             text: take_chars(&squash(display), opts.chars).to_owned(),
@@ -61,16 +68,19 @@ pub fn run(opts: &Opts, re: &Regex) -> Result<Vec<Row>, String> {
     Ok(rows)
 }
 
+/// The prompt's time to the millisecond, for ordering only. `stamp` truncates
+/// to the minute to print, and two prompts in the same minute have to keep the
+/// order they were typed in rather than fall back to comparing their text.
+fn precise(v: &Value) -> String {
+    v.get("timestamp").and_then(Value::as_i64).map(|ms| format!("{ms:020}")).unwrap_or_default()
+}
+
 /// The prompt's time, in the local zone, as the row will print it.
 fn stamp(v: &Value) -> String {
     v.get("timestamp")
         .and_then(Value::as_i64)
         .and_then(DateTime::from_timestamp_millis)
-        .map(|dt| {
-            dt.with_timezone(&Local)
-                .format("%Y-%m-%d %H:%M")
-                .to_string()
-        })
+        .map(|dt| dt.with_timezone(&Local).format("%Y-%m-%d %H:%M").to_string())
         .unwrap_or_default()
 }
 

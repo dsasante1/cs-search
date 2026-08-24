@@ -33,6 +33,7 @@ pub fn save(path: &Path, o: &Opts) {
         "thinking": o.thinking,
         "no_sub": o.no_sub,
         "prompts": o.prompts,
+        "questions": o.questions,
         "fixed": o.fixed,
         "chars": o.chars,
         "jobs": o.jobs,
@@ -66,6 +67,7 @@ pub fn load(path: &Path) -> Opts {
         thinking: b("thinking", d.thinking),
         no_sub: b("no_sub", d.no_sub),
         prompts: b("prompts", d.prompts),
+        questions: b("questions", d.questions),
         fixed: b("fixed", d.fixed),
         chars: n("chars", d.chars),
         jobs: n("jobs", d.jobs),
@@ -126,6 +128,9 @@ pub fn header(path: &Path, query: &str) -> String {
     }
     if o.fixed {
         active.push("literal".into());
+    }
+    if o.questions {
+        active.push("questions".into());
     }
     if o.thread {
         active.push("thread".into());

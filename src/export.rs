@@ -142,15 +142,10 @@ pub fn run(id: &str, role: &str, format: Format) -> i32 {
         eprintln!("cs export <session-id> [--format md|html|json]");
         return 2;
     }
-    let matches = show::resolve(id);
-    let Some(path) = matches.first() else {
-        eprintln!("no session matching '{id}'");
+    let Some(path) = show::pick(id, "exporting") else {
         return 1;
     };
-    if matches.len() > 1 {
-        eprintln!("# {} sessions match '{id}', exporting the first:", matches.len());
-    }
-    let Ok(fh) = std::fs::File::open(path) else {
+    let Ok(fh) = std::fs::File::open(&path) else {
         eprintln!("cannot read {}", path.display());
         return 1;
     };
@@ -161,7 +156,7 @@ pub fn run(id: &str, role: &str, format: Format) -> i32 {
         return 1;
     }
     let sid = path.file_stem().and_then(|s| s.to_str()).unwrap_or(id);
-    let cwd = show::session_cwd(path).unwrap_or_default();
+    let cwd = show::session_cwd(&path).unwrap_or_default();
 
     let stdout = std::io::stdout();
     let mut w = std::io::BufWriter::new(stdout.lock());
@@ -234,7 +229,10 @@ mod tests {
 
     #[test]
     fn every_escaped_character_round_trips() {
-        assert_eq!(escape(r#"<a href="x">&'</a>"#), "&lt;a href=&quot;x&quot;&gt;&amp;&#39;&lt;/a&gt;");
+        assert_eq!(
+            escape(r#"<a href="x">&'</a>"#),
+            "&lt;a href=&quot;x&quot;&gt;&amp;&#39;&lt;/a&gt;"
+        );
         assert_eq!(escape("plain"), "plain");
     }
 

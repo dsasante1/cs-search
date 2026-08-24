@@ -11,11 +11,18 @@ cs -t 'ALTER TABLE'              # searching tool calls and their output too
 cs -s last-week --thread 'flaky' # last week's matches, each with the turns around it
 cs -b ui-overhaul 'divider'      # only what happened on that git branch
 cs -s 7d -u yesterday 'deploy'   # a closed range; both ends inclusive
+cs -q -p 'cloud sql'             # only the prompts that asked something
+cs 'rate limit' --chrono         # one line per session, oldest first
+cs history 'django-celery'       # when a topic started, and when it stopped
+cs activity -s 30d               # where the month went, by day and project
 cs show 3f2a1b9c                 # one session as a readable transcript
 cs show 3f2a1b9c -r user         # only the half of it you typed
 cs sessions dashqard             # sessions newest-first, by title
 cs files 'settings/base.py'      # which sessions touched a file, and when
+cs handoff 3f2a1b9c              # where that session left off
+cs related 3f2a1b9c              # other sessions about the same thing
 cs stats -P dashqard             # models, tokens and cache use
+cs stats 3f2a1b9c                # or for one session alone
 cs export 3f2a1b9c --format md   # one session as a document
 cs projects                      # what -P can be given
 cs resume 3f2a1b9c               # reopen that session in Claude Code
@@ -32,6 +39,17 @@ always has, so anything built on that keeps working:
 cs database | wc -l              # unchanged: one line per match
 cs database --plain              # results instead of the picker
 cs database --json               # one JSON object per match, per line
+```
+
+Flags are read on either side of the pattern. The shell version stopped at the
+first bare word, so `cs database --json` searched for `database` and dropped the
+flag without saying so — including in four of the examples shipped with this
+program. Two bare words are now an error rather than the first one and a
+silence:
+
+```console
+$ cs stripe webhook
+unexpected argument 'webhook' after the pattern 'stripe' — quote them if they are one pattern
 ```
 
 Inside the picker, **typing runs the search again** rather than filtering the
@@ -71,6 +89,22 @@ dashqard-customer-backend-api 4258e94f  2026-08-02 10:17  38 matches
 
 `--no-group` gives one line per match instead. A count of matches, sessions and
 projects goes to stderr when a person is there to read it.
+
+`--chrono` is a third rendering, for the question grouping does not answer —
+not "where was this mentioned" but "how did it develop". One line per session,
+oldest first, quoting the line that first matched in it:
+
+```
+2026-07-11 10:17 api      3f2a1b9c   4  should we cache availability at all?
+2026-07-12 09:02 api      7c1d0e2a   9  going with redis for the read-heavy path
+2026-08-02 14:31 api      a4b1c9d3  12  the stale-cache race is in the lease path
+2026-08-17 11:40 api      f091ba22   6  invalidation now happens after the commit
+```
+
+Nothing there is summarised. Each line is one somebody wrote, picked by being
+the first hit in that session; reading the progression is yours to do. On a
+terminal the snippet is cut to fit the window, because a row that wraps three
+times is no longer one line per session.
 
 Colour is spent where it carries something: the project, and the match. The role
 column is dim rather than magenta — beside a highlighted hit, a coloured role was
@@ -138,6 +172,21 @@ half separately. The branch also rides beside the project in grouped output:
 Flat output is deliberately unchanged — those columns are what scripts parse —
 so `--json` is where a program reads the branch.
 
+`-q/--questions` keeps only the lines that ask something, which is most of what
+`-p` is for — what you *asked* is a different set from what you instructed:
+
+```sh
+cs -q -p 'cloud sql'             # the questions you typed
+cs -q 'rate limit'               # and the ones either speaker asked
+```
+
+A question is recognised by punctuation: a `?` that ends a clause and follows a
+word. There is no list of interrogative openers, because "can you run the
+tests" is a request rather than a question and no wordlist tells the two apart
+without being tuned forever. So `?id=1` in a URL, a `colou?r` quantifier and a
+`a ?? b` are all excluded, and a question typed without its mark is missed. That
+is the direction worth being wrong in.
+
 `-s/--since` and `-u/--until` bound a range from either end, and neither needs a
 date you have to look up:
 
@@ -189,6 +238,126 @@ session" answerable. Paths are read by key (`file_path`, `notebook_path`) rather
 than by tool name, so a tool added later is seen without a change here. It takes
 the same `-P`, `-b`, `-s`, `-u` and `-F` a search does.
 
+### `cs history` — when a topic started, and when it stopped
+
+A search hands back every line and leaves the counting to you. The question
+underneath is usually smaller: when did this first come up, am I still on it,
+and which projects did it bleed into.
+
+```console
+$ cs history 'django-celery'
+'django-celery'
+
+  first   2026-05-12 14:03  aaaa1111  104 days ago
+  last    2026-08-19 09:41  bbbb2222  5 days ago
+
+86 matches · 14 sessions · 3 projects
+
+PROJECTS
+        52  api
+        28  worker
+         6  cs
+```
+
+It is the same search, counted rather than listed, so it can never report
+something a search would not show you — and it takes every flag one takes, `-P`
+and `-s` and `-t` and `-p` included. "First" and "last" are lines somebody
+actually wrote, each naming the session to open. `--sessions` adds the
+chronology underneath, rendered by the same code `--chrono` uses.
+
+### `cs activity` — where the month went
+
+`stats` totals the corpus; this cuts the same records by day, which is the only
+axis that answers "what happened last month" rather than "what is in here".
+
+```
+DAY         sessions  messages
+2026-08-24         4       721  ███▌
+2026-08-23         2     1,211  ██████
+2026-08-22         5     2,671  ██████████████
+2026-08-21         9     3,788  ████████████████████
+
+15 active days · 86 sessions · 41,301 messages
+
+PROJECTS
+    16,102  unicare_hostel_management
+    14,105  dashqard-customer-backend-api
+```
+
+Days nothing happened on are absent rather than drawn as zero — a year would
+otherwise be three hundred empty rows, and the gaps between the dates say the
+same thing. The bars are drawn only for a terminal; piped, the columns arrive
+without them, and `--json` gives one object per day.
+
+### `cs handoff` — where a session left off
+
+Coming back to work after a break, the questions are always the same: what was
+this, how long did it run, which files did it touch, what was said last.
+
+```console
+$ cs handoff 4258e94f
+SESSION  4258e94f-90c2-4f11-b3a7-1d0e2a7c4b58
+  project  dashqard-customer-backend-api  /home/u/dashqard
+  branch   feat/cache-invalidation
+  when     2026-08-02 10:17 → 2026-08-02 12:59  (2h 42m)
+  turns    38 yours · 61 assistant
+  tokens   1.8K in · 412K out · 7.3M cached  (96.4% from cache)
+
+FILES
+    12  src/cache/availability.ts
+     4  src/services/lease.ts
+
+LAST TURNS
+── CC  2026-08-02 12:58 ───────────────────────────────────────────
+Invalidation now runs after the transaction commits, not inside it.
+```
+
+All four are recorded, so all four are read. What is deliberately absent:
+"open threads", "the decision", "the next step". Those cannot be had from a
+transcript without summarising it, and a heuristic that guessed them would be
+wrong quietly — the one failure this tool tries hardest not to have. The closing
+turns are printed verbatim instead, with the tool calls left out: a tail made of
+JSON payloads says nothing about where the work got to. `--prices` prices the
+session through the same arithmetic `stats` uses.
+
+### `cs related` — other sessions about the same thing
+
+Work on one problem scatters across sessions, and nothing joins them up: the
+session that hit the bug and the session that fixed it share a subject but not a
+word you would think to search for.
+
+```console
+$ cs related 9f42c8f8
+related to 9f42c8f8 · Project description for feature ideas
+
+weight  last        project   session   title
+  9.10  2026-08-24  cs        d943d496  Feature recommendations
+                                        ↳ --branch, --prices, --thread, alt-x  +395 more
+  6.35  2026-08-18  move      ad653846  Search .claude folder by keyword
+                                        ↳ embedding, ripgrep, subagent, fzf  +175 more
+```
+
+The measure is ordinary and old: a term is worth something in proportion to how
+*rare* it is across the corpus, and two sessions are related in proportion to
+the rare terms they have in common. That has one property worth the whole
+design — **it needs no list of stopwords**. "the" appears in every session, so
+`ln(sessions / sessions)` is zero and it counts for nothing on its own. Nothing
+has to be tuned, and there is no list to go stale. The total is divided by the
+square root of the session's length, or the ranking would measure size as much
+as subject.
+
+It is not an understanding of either session; it is a claim about vocabulary.
+So the words that earned each result are printed beside it, and a result whose
+words are obviously the wrong ones can be dismissed without opening it. The
+weight column is named because the number needs it: it orders the list and means
+nothing on its own.
+
+Only conversation text is read — tool calls and their output are full of paths
+and file contents that would drown the subject in incidentals. It is also the
+one command here with no prefilter to hide behind: which terms are rare is not
+knowable until every record has been read, so every record is read. On the
+corpus below that is 0.39s.
+
 ### `cs stats` — what the corpus is made of
 
 Every assistant record carries a model and a usage block, and nothing here had
@@ -211,6 +380,11 @@ Cost is not built in. Prices change, a hardcoded table would go stale silently,
 and a number that is quietly wrong is worse than no number — so `--prices
 <file>` takes a table of dollars per million tokens from you, and a model
 missing from it is named rather than billed at zero.
+
+A session id narrows all of it to one session — `cs stats 3f2a1b9c` — which is
+where "what did this one cost me" is answered. It is the same walk and the same
+arithmetic, pointed at the single file the transcripts are named by, so a
+session's cost and the corpus's can never be computed two different ways.
 
 ### `cs export` — a session as a document
 
@@ -242,6 +416,35 @@ gives you the exchange it came out of, which is usually the half you wanted:
 cs --thread 'rate limiting'
 ```
 
+**How a decision developed.** `history` bounds it, `--chrono` walks it, and the
+session at the end of the list is where it was settled:
+
+```console
+$ cs history 'rate limiting'
+'rate limiting'
+
+  first   2026-06-18 09:12  3f2a1b9c  67 days ago
+  last    2026-08-19 14:02  f091ba22  5 days ago
+
+47 matches · 9 sessions · 3 projects
+
+$ cs 'rate limiting' --chrono
+```
+
+**What else was about this.** Having found one session, `related` finds the
+others that share its vocabulary, and says which words those were:
+
+```sh
+cs related 3f2a1b9c
+```
+
+**Picking work back up.** `handoff` is the first thing to run on a Monday:
+
+```sh
+cs sessions dashqard | head -3     # what was I in the middle of
+cs handoff 4258e94f                # and where did it get to
+```
+
 **What touched a file, and what was said about it.** `files` answers the first
 half and hands you the session id for the second:
 
@@ -253,6 +456,14 @@ $ cs files 'settings/base.py'
 $ cs show ca98bc25
 ```
 
+**Where the month went.** `activity` cuts the corpus by day; `stats` totals it.
+Both take the same filters:
+
+```sh
+cs activity -s 30d
+cs activity -s 30d -P dashqard
+```
+
 **A day, or a week, in aggregate.** Both ends of the range are inclusive, so a
 date repeated is that one day:
 
@@ -261,6 +472,13 @@ $ cs stats -s 2026-08-20 -u 2026-08-20
 8 sessions · 2,684 messages · 4 projects
 2026-08-20 → 2026-08-20
 998 yours · 1,686 assistant
+```
+
+**What one session cost.** The same command, given an id instead of a filter:
+
+```console
+$ cs stats 4258e94f --prices prices.json
+1 session · 99 messages · 1 project
 ```
 
 **What a month cost.** The price table is yours, in dollars per million tokens,
@@ -278,6 +496,13 @@ COST
 
 Anything the table does not price is named rather than counted as free, so the
 total is never short without saying so.
+
+**What you actually asked, as opposed to told.** `-q` keeps the lines that end a
+clause with a question mark, so `-p` stops being half instructions:
+
+```sh
+cs -q -p 'cloud sql'
+```
 
 **Every session that discussed a topic.** `--json` is the interface to build on;
 the flat columns are stable, but the field names are the thing that will not
@@ -394,7 +619,7 @@ avoids the work.
 cargo test
 ```
 
-297 tests, needing no network and no fixtures beyond what the suite creates and
+359 tests, needing no network and no fixtures beyond what the suite creates and
 cleans up itself:
 
 - **Unit tests** sit inline in each module and cover the pure helpers —
@@ -405,9 +630,11 @@ cleans up itself:
   both colour and plain form, which filters an empty result probes, which
   prompts a date cutoff keeps, date specs resolved against a fixed "today",
   which title in a file wins, how touches fold into files, the token arithmetic
-  behind `stats`, that every example in this README and in the help page uses a
-  flag the help page documents, and the count-gutter alignment that survives
-  having escape sequences in the line.
+  behind `stats`, what counts as a question and what is only punctuation, how a
+  session's span reads off its two ends, that a day's messages and its sessions
+  are counted separately, that every example in this README and in the help page
+  uses a flag the help page documents, and the count-gutter alignment that
+  survives having escape sequences in the line.
 - **Integration tests** (`tests/cli.rs`) build a synthetic corpus in a temp
   directory, point the binary at it with `CLAUDE_HOME`, and assert on real
   output. The fixture is hand-written, so the suite carries no personal data.
@@ -420,7 +647,16 @@ subcommands, including the toggle-then-reload loop a keypress performs.
 The synthetic corpus carries a third session holding what the first two
 predate — a git branch, a generated title, tool calls naming files, and a usage
 block — so the older tests keep counting what they were written to count while
-the newer ones have something to read.
+the newer ones have something to read. A fourth sits beside it in another
+project, saying what the third said in different words: two sessions have to
+share a vocabulary before `related` has anything to find, and its wording is
+chosen to overlap with that session and with nothing else in the corpus.
+
+`related`'s ranking is tested on the property rather than on an outcome — that a
+term every session uses carries no weight, that a rare term outranks a common
+one however many of the common ones are shared, and that a long session is not
+related to everything merely by being long. Those hold whatever the corpus is,
+which a fixture asserting "session C comes first" would not.
 
 The prefilter's invariant — that it may waste work but must never drop a line
 whose decoded text matches — is checked twice over: as a property test across
@@ -447,6 +683,10 @@ makes the suite fail.
 | `src/completions.rs` | `cs completions`: bash, zsh and fish scripts |
 | `src/export.rs` | `cs export`: markdown, self-contained HTML, JSONL |
 | `src/files.rs` | `cs files`: paths that were acted on, folded per file |
+| `src/history.rs` | `cs history`: a result set counted rather than listed |
+| `src/activity.rs` | `cs activity`: the corpus cut by day |
+| `src/handoff.rs` | `cs handoff`: one session's shape, and how it ended |
+| `src/related.rs` | `cs related`: rare shared vocabulary, and its weights |
 | `src/stats.rs` | `cs stats`: models, tokens, cache, optional priced cost |
 | `src/resume.rs` | `cs resume` |
 | `src/prompts.rs` | `cs -p` |
