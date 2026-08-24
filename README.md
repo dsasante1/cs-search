@@ -7,8 +7,10 @@ cs 'stripe webhook'              # opens the picker on a terminal; prints rows w
 cs -F 'useState('                # match the pattern literally, not as a regex
 cs -p 'rate limit'               # only your own prompts (history.jsonl)
 cs -C 2 'ALTER TABLE'            # with two lines of surrounding context
+cs -t 'ALTER TABLE'              # searching tool calls and their output too
 cs -s last-week --thread 'flaky' # last week's matches, each with the turns around it
 cs -b ui-overhaul 'divider'      # only what happened on that git branch
+cs -s 7d -u yesterday 'deploy'   # a closed range; both ends inclusive
 cs show 3f2a1b9c                 # one session as a readable transcript
 cs show 3f2a1b9c -r user         # only the half of it you typed
 cs sessions dashqard             # sessions newest-first, by title
@@ -231,6 +233,74 @@ grep` followed by a copy and a paste. Ids and project names are completed by
 shelling out to `cs` itself rather than from a cache — the corpus changes every
 time you use Claude Code, and `sessions` answers in 0.05s.
 
+## Recipes
+
+**Where did we land on something.** A search gives you the line; `--thread`
+gives you the exchange it came out of, which is usually the half you wanted:
+
+```sh
+cs --thread 'rate limiting'
+```
+
+**What touched a file, and what was said about it.** `files` answers the first
+half and hands you the session id for the second:
+
+```console
+$ cs files 'settings/base.py'
+   9  2026-08-23 13:09  anasset-api           d8ec79b4  config/settings/base.py
+  53  2026-08-20 11:58  unicare_ho…anagement  ca98bc25  config/settings/base.py
+
+$ cs show ca98bc25
+```
+
+**A day, or a week, in aggregate.** Both ends of the range are inclusive, so a
+date repeated is that one day:
+
+```console
+$ cs stats -s 2026-08-20 -u 2026-08-20
+8 sessions · 2,684 messages · 4 projects
+2026-08-20 → 2026-08-20
+998 yours · 1,686 assistant
+```
+
+**What a month cost.** The price table is yours, in dollars per million tokens,
+rather than one baked into the binary and quietly going out of date:
+
+```console
+$ cat prices.json
+{"claude-opus-5": {"input": 5, "output": 25, "cache_read": 0.5, "cache_write": 6.25}}
+
+$ cs stats -s last-month --prices prices.json
+COST
+  estimated    $7406.22
+  not in the price table: <synthetic>, claude-opus-4-8
+```
+
+Anything the table does not price is named rather than counted as free, so the
+total is never short without saying so.
+
+**Every session that discussed a topic.** `--json` is the interface to build on;
+the flat columns are stable, but the field names are the thing that will not
+move:
+
+```sh
+cs --json 'prefilter' | jq -r .session | sort -u
+cs --json 'migration' | jq -r .project | sort | uniq -c | sort -rn
+```
+
+**A session someone else has to read.** `show` renders for your terminal;
+`export` renders for anywhere else:
+
+```sh
+cs export 3f2a1b9c --format md   > session.md
+cs export 3f2a1b9c --format html > session.html
+```
+
+**A search that came back with too much.** Rather than quitting and retyping,
+narrow it in the picker: `alt-p` scopes to the project under the cursor, `alt-r`
+cycles the speaker, `alt-x` adds the surrounding turns. Typing re-runs the
+search rather than filtering what is already on screen.
+
 ## Install
 
 ```sh
@@ -324,7 +394,7 @@ avoids the work.
 cargo test
 ```
 
-296 tests, needing no network and no fixtures beyond what the suite creates and
+297 tests, needing no network and no fixtures beyond what the suite creates and
 cleans up itself:
 
 - **Unit tests** sit inline in each module and cover the pure helpers —
@@ -335,9 +405,9 @@ cleans up itself:
   both colour and plain form, which filters an empty result probes, which
   prompts a date cutoff keeps, date specs resolved against a fixed "today",
   which title in a file wins, how touches fold into files, the token arithmetic
-  behind `stats`, that every example in the help page uses a flag the help page
-  documents, and the count-gutter alignment that survives having escape
-  sequences in the line.
+  behind `stats`, that every example in this README and in the help page uses a
+  flag the help page documents, and the count-gutter alignment that survives
+  having escape sequences in the line.
 - **Integration tests** (`tests/cli.rs`) build a synthetic corpus in a temp
   directory, point the binary at it with `CLAUDE_HOME`, and assert on real
   output. The fixture is hand-written, so the suite carries no personal data.

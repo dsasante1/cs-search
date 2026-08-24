@@ -21,6 +21,7 @@ USAGE
   cs export <session-id>    write one session out: --format md|html|json
   cs projects [substr]      list projects with session counts
   cs stats [-P proj]        models, tokens and cache use across the corpus
+                            --prices <file> adds a cost estimate
   cs resume <session-id>    reopen that session in Claude Code
   cs completions <shell>    completion script for bash, zsh or fish
 
@@ -505,6 +506,40 @@ mod tests {
                 described.contains(flag),
                 "{flag} is used in an example but never documented"
             );
+        }
+    }
+
+    /// The README's examples are copied at least as often as the help page's,
+    /// and drift the same way — `--prices` was documented there and nowhere
+    /// else until this test went looking. Only `cs`'s own invocations are
+    /// checked: a line's flags stop at the first pipe, so `sort -rn` further
+    /// down a pipeline is somebody else's business.
+    #[test]
+    fn every_flag_shown_in_the_readme_is_documented_too() {
+        let readme = include_str!("../README.md");
+        let described = USAGE.split("EXAMPLES").next().unwrap();
+        for block in readme.split("```").skip(1).step_by(2) {
+            for line in block.lines() {
+                let line = line.trim();
+                let line = line.strip_prefix("$ ").unwrap_or(line);
+                let Some(line) = line.strip_prefix("cs ") else { continue };
+                let line = line.split('#').next().unwrap();
+                let line = line.split('|').next().unwrap();
+                for token in line.split_whitespace() {
+                    let flag = token.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '-');
+                    if !flag.starts_with('-') || flag.len() < 2 {
+                        continue;
+                    }
+                    // -C 2 and friends: a digit is an argument, not a flag.
+                    if flag.as_bytes()[1].is_ascii_digit() {
+                        continue;
+                    }
+                    assert!(
+                        described.contains(flag),
+                        "the README shows {flag} but the help page never describes it"
+                    );
+                }
+            }
         }
     }
 
