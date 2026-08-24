@@ -633,6 +633,49 @@ fn prompts_respects_the_project_filter() {
     assert!(r.stdout.contains("beta prompt"));
 }
 
+// The two fixture prompts sit at 2026-06-21 00:00 and 2026-06-22 03:46 UTC, and
+// -p prints them in local time, so these pin TZ rather than assert on whatever
+// zone the suite happens to run in.
+
+/// `-s` was accepted on the -p path and then never applied: every prompt came
+/// back regardless of the date, which looks exactly like a date with nothing
+/// before it.
+#[test]
+fn prompts_respect_the_since_filter() {
+    let c = Corpus::new();
+    let r = c.run_env(&["-p", "-s", "2026-06-22", "prompt"], &[("TZ", "UTC")]);
+    assert_eq!(r.count(), 1, "{}", r.stdout);
+    assert!(r.stdout.contains("beta prompt"), "{}", r.stdout);
+    assert!(!r.stdout.contains("first prompt"), "{}", r.stdout);
+}
+
+/// The earlier prompt lands exactly on midnight of the cutoff day, which is the
+/// case a comparison that mishandles the printed "HH:MM" gets wrong.
+#[test]
+fn the_since_day_itself_is_kept_on_the_prompts_path() {
+    let c = Corpus::new();
+    let r = c.run_env(&["-p", "-s", "2026-06-21", "prompt"], &[("TZ", "UTC")]);
+    assert_eq!(r.count(), 2, "{}", r.stdout);
+    assert!(r.stdout.contains("first prompt about needle"), "{}", r.stdout);
+}
+
+#[test]
+fn a_since_after_every_prompt_reports_no_matches() {
+    let c = Corpus::new();
+    let r = c.run_env(&["-p", "-s", "2026-06-23", "prompt"], &[("TZ", "UTC")]);
+    assert_eq!(r.code, 1);
+    assert_eq!(r.count(), 0, "{}", r.stdout);
+    assert!(r.stderr.contains("no matches"), "stderr: {}", r.stderr);
+}
+
+/// -s and -P narrow the same search rather than one replacing the other.
+#[test]
+fn prompts_combine_the_since_and_project_filters() {
+    let c = Corpus::new();
+    let r = c.run_env(&["-p", "-P", "alpha", "-s", "2026-06-22", "prompt"], &[("TZ", "UTC")]);
+    assert_eq!(r.code, 1, "alpha's only prompt predates the cutoff: {}", r.stdout);
+}
+
 // ------------------------------------------------------------------------ cli
 
 // --------------------------------------------------------------- cs projects
