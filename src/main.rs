@@ -2,6 +2,7 @@
 
 mod cli;
 mod dates;
+mod files;
 mod interactive;
 mod output;
 mod picker;
@@ -43,6 +44,7 @@ fn main() {
             exit(0);
         }
         "projects" => exit(projects::run(sub(1), Opts::default().jobs)),
+        "files" => exit(files_command(&args)),
         "resume" => exit(resume::run(sub(1))),
         // Internal, and spelled so: these exist for the picker's key bindings to
         // call back into, and are not part of the CLI.
@@ -275,6 +277,54 @@ fn widenings(opts: &Opts, re: &Regex) -> Vec<(usize, String)> {
             (found > 0).then_some((found, flag))
         })
         .collect()
+}
+
+/// `cs files <pattern>` — the search flags, applied to paths that were worked
+/// on rather than to anything anyone said.
+///
+/// Shares the flag grammar so `-P`, `-b`, `-s`, `-u` and `-F` mean here exactly
+/// what they mean in a search; the flags that shape a *text* result (-C, -t,
+/// grouping) have nothing to act on and are ignored.
+fn files_command(args: &[OsString]) -> i32 {
+    let opts = match cli::parse(&args[1..]) {
+        Ok(Parsed::Search(o)) => o,
+        Ok(Parsed::Help) => {
+            print!("{USAGE}");
+            return 0;
+        }
+        Err(msg) => {
+            eprintln!("{}", if msg.is_empty() { "cs files <pattern>".into() } else { msg });
+            return 2;
+        }
+    };
+    let (re, note) = match scan::compile(&opts) {
+        Ok(v) => v,
+        Err(msg) => {
+            eprintln!("{msg}");
+            return 2;
+        }
+    };
+    if let Some(note) = note {
+        eprintln!("{note}");
+    }
+
+    let hits = files::run(&opts, &re);
+    if hits.is_empty() {
+        eprintln!("no files matching '{}'", opts.pattern);
+        return 1;
+    }
+    if output::stderr_is_tty() {
+        eprintln!("{}", files::summary(&hits));
+    }
+    let stdout = std::io::stdout();
+    let mut w = BufWriter::new(stdout.lock());
+    if opts.json {
+        files::print_json(&mut w, &hits);
+    } else {
+        files::print(&mut w, &hits, output::is_tty());
+    }
+    let _ = w.flush();
+    0
 }
 
 /// `cs show <id> [-r <role>] [--highlight <pat>] [--at <pat>] [--color] [--no-pager]`.

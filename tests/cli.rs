@@ -905,6 +905,64 @@ fn the_sessions_filter_matches_titles_too() {
     assert!(r.stdout.contains("Widget padding fix"), "{}", r.stdout);
 }
 
+// ------------------------------------------------------------------- cs files
+
+#[test]
+fn files_lists_what_was_touched_and_how_often() {
+    let c = Corpus::new();
+    let r = c.run(&["files", "widget"]);
+    assert_eq!(r.code, 0, "stderr: {}", r.stderr);
+    assert_eq!(r.count(), 1, "one path, however many touches: {}", r.stdout);
+    let line = &r.lines()[0];
+    assert!(line.trim_start().starts_with('3'), "edit + read + write: {line}");
+    // Shown relative to the project it belongs to, not as an absolute path.
+    assert!(line.contains("src/widget.rs"), "{line}");
+    assert!(!line.contains("/home/u/gamma/src"), "{line}");
+}
+
+#[test]
+fn files_reads_notebooks_as_well_as_source() {
+    let c = Corpus::new();
+    assert!(c.run(&["files", "ipynb"]).stdout.contains("notes.ipynb"));
+}
+
+/// The filename is in the transcript either way; what makes this a feature is
+/// that a tool call is read as a tool call rather than as text.
+#[test]
+fn files_ignores_paths_that_were_only_talked_about() {
+    let c = Corpus::new();
+    assert_eq!(c.run(&["files", "users"]).code, 1, "SELECT ... FROM users is prose");
+    assert_eq!(c.run(&["files", "cargo test"]).code, 1, "a bash command names no file");
+}
+
+#[test]
+fn files_takes_the_same_filters_a_search_does() {
+    let c = Corpus::new();
+    assert_eq!(c.run(&["files", "-P", "gamma", "widget"]).count(), 1);
+    assert_eq!(c.run(&["files", "-P", "beta", "widget"]).code, 1);
+    assert_eq!(c.run(&["files", "-b", "main", "widget"]).count(), 1, "the Write was on main");
+    assert_eq!(c.run(&["files", "-u", "2026-08-10", "widget"]).count(), 1);
+}
+
+#[test]
+fn files_json_separates_touches_from_sessions() {
+    let c = Corpus::new();
+    let r = c.run(&["files", "--json", "widget"]);
+    let v: Value = serde_json::from_str(r.stdout.lines().next().unwrap()).unwrap();
+    assert_eq!(v["touches"], 3);
+    assert_eq!(v["sessions"], 1);
+    assert_eq!(v["path"], "/home/u/gamma/src/widget.rs");
+    assert_eq!(v["branch"], "main", "the most recent touch names the branch");
+}
+
+#[test]
+fn files_reports_no_match_rather_than_printing_nothing() {
+    let c = Corpus::new();
+    let r = c.run(&["files", "nothing-like-this"]);
+    assert_eq!(r.code, 1);
+    assert!(r.stderr.contains("no files"), "stderr: {}", r.stderr);
+}
+
 // ------------------------------------------------------------------------ cli
 
 // --------------------------------------------------------------- cs projects

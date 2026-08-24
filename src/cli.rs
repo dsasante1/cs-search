@@ -17,6 +17,7 @@ USAGE
   cs show <session-id>      print one session as a readable transcript
                             -r user|assistant reads one side of it only
   cs sessions [substr]      list sessions newest-first, by title
+  cs files <pattern>        which files were edited or read, and when
   cs projects [substr]      list projects with session counts
   cs resume <session-id>    reopen that session in Claude Code
 
@@ -60,6 +61,7 @@ EXAMPLES
   cs -P dashqard -r user 'rate limit'
   cs -s last-week --thread 'flaky test'
   cs -b ui-overhaul -s 7d 'divider'
+  cs files 'settings/base.py'
   cs -C 2 'ALTER TABLE'
 "#;
 
