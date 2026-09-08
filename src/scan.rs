@@ -20,11 +20,24 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use walkdir::WalkDir;
 
+/// Where the transcripts live.
+///
+/// `CLAUDE_HOME` is this tool's own switch and wins, because the test suite and
+/// `--help` both promise it does. `CLAUDE_CONFIG_DIR` is Claude Code's, and is
+/// what actually relocates the store on a machine running more than one
+/// account: a caller already pointed at an account by that variable would
+/// otherwise be silently answered from a different login's history, which is a
+/// wrong answer that looks like a correct one.
 pub fn claude_home() -> PathBuf {
-    match std::env::var_os("CLAUDE_HOME") {
-        Some(h) => PathBuf::from(h),
-        None => PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".claude"),
+    for var in ["CLAUDE_HOME", "CLAUDE_CONFIG_DIR"] {
+        // An empty value is how a config file spells "unset"; treating it as a
+        // path would look for transcripts under the working directory.
+        match std::env::var_os(var) {
+            Some(h) if !h.is_empty() => return PathBuf::from(h),
+            _ => {}
+        }
     }
+    PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".claude")
 }
 
 pub fn projects_dir() -> PathBuf {
@@ -177,9 +190,18 @@ pub fn search(opts: &Opts, re: &Regex) -> Hits {
                         // that produced something — the prefilter skips most
                         // lines outright, so no record is guaranteed to have
                         // been parsed with the session's opening cwd on it.
-                        if let Some(label) = crate::projects::label(&path) {
+                        //
+                        // The directory and its label come out of one read, and
+                        // must: `--json` carries both, and a row whose `cwd`
+                        // disagreed with its `project` would be worse than
+                        // either alone.
+                        if let Some(cwd) = crate::projects::root(&path) {
+                            let label = crate::projects::name_of(&cwd);
                             for row in &mut rows[before..] {
-                                row.project.clone_from(&label);
+                                if let Some(label) = &label {
+                                    row.project.clone_from(label);
+                                }
+                                row.cwd.clone_from(&cwd);
                             }
                         }
                         files.push(path);
@@ -278,6 +300,11 @@ fn emit(v: &Value, ctx: &Ctx, rows: &mut Vec<Row>) {
                 branch: r.git_branch().to_owned(),
                 role: role.to_owned(),
                 sid: sid.clone(),
+                session_id: r.session_id().to_owned(),
+                // Filled per transcript once the file is known to have matched;
+                // the record's own cwd is the wrong answer after a `cd`.
+                cwd: String::new(),
+                uuid: r.uuid().to_owned(),
                 text: clip(&squash(line), o.chars),
                 // Under --thread these are filled from the turns either side
                 // once the whole file has been read; see `scan_threaded`.
@@ -572,16 +599,42 @@ mod tests {
         assert!(!exact.is_match("a concrete recommendation"));
     }
 
+    /// Both variables in one test on purpose: they are process-global, and two
+    /// tests setting them would race each other under the default thread pool.
     #[test]
-    fn claude_home_honours_the_env_var() {
+    fn claude_home_honours_the_env_vars() {
+        let prev_home = std::env::var_os("CLAUDE_HOME");
+        let prev_cfg = std::env::var_os("CLAUDE_CONFIG_DIR");
+
         // Guards the escape hatch the tests themselves depend on.
-        let prev = std::env::var_os("CLAUDE_HOME");
         std::env::set_var("CLAUDE_HOME", "/tmp/some-corpus");
+        std::env::remove_var("CLAUDE_CONFIG_DIR");
         assert_eq!(claude_home(), PathBuf::from("/tmp/some-corpus"));
         assert_eq!(projects_dir(), PathBuf::from("/tmp/some-corpus/projects"));
-        match prev {
+
+        // Claude Code's own variable is what relocates the store on a machine
+        // running two accounts, so a caller already pointed at one by it must
+        // not be answered out of the other's history.
+        std::env::remove_var("CLAUDE_HOME");
+        std::env::set_var("CLAUDE_CONFIG_DIR", "/tmp/work-account");
+        assert_eq!(claude_home(), PathBuf::from("/tmp/work-account"));
+
+        // This tool's own switch wins where both are set: `--help` says so.
+        std::env::set_var("CLAUDE_HOME", "/tmp/some-corpus");
+        assert_eq!(claude_home(), PathBuf::from("/tmp/some-corpus"));
+
+        // An empty value is how a settings file spells "unset". Reading it as a
+        // path would look for transcripts under the working directory.
+        std::env::set_var("CLAUDE_HOME", "");
+        assert_eq!(claude_home(), PathBuf::from("/tmp/work-account"));
+
+        match prev_home {
             Some(v) => std::env::set_var("CLAUDE_HOME", v),
             None => std::env::remove_var("CLAUDE_HOME"),
+        }
+        match prev_cfg {
+            Some(v) => std::env::set_var("CLAUDE_CONFIG_DIR", v),
+            None => std::env::remove_var("CLAUDE_CONFIG_DIR"),
         }
     }
 }

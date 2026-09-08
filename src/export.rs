@@ -56,7 +56,13 @@ fn jsonl(w: &mut impl Write, turns: &[Turn], sid: &str) {
         let _ = writeln!(
             w,
             "{}",
-            json!({"session": sid, "ts": t.ts, "role": t.who.name(), "text": t.text})
+            json!({
+                "session": sid,
+                "ts": t.ts,
+                "role": t.who.name(),
+                "uuid": t.uuid,
+                "text": t.text,
+            })
         );
     }
 }
@@ -171,8 +177,18 @@ mod tests {
 
     fn turns() -> Vec<Turn> {
         vec![
-            Turn { who: Who::You, ts: "2026-08-03 16:31".into(), text: "run <it> & wait".into() },
-            Turn { who: Who::Cc, ts: "2026-08-03 16:32".into(), text: "line one\nline two".into() },
+            Turn {
+                who: Who::You,
+                ts: "2026-08-03 16:31".into(),
+                text: "run <it> & wait".into(),
+                uuid: "u1".into(),
+            },
+            Turn {
+                who: Who::Cc,
+                ts: "2026-08-03 16:32".into(),
+                text: "line one\nline two".into(),
+                uuid: "u2".into(),
+            },
         ]
     }
 
@@ -206,6 +222,10 @@ mod tests {
         assert_eq!(second["role"], "assistant");
         // Newlines stay inside one turn rather than splitting it in two.
         assert_eq!(second["text"], "line one\nline two");
+        // The record each turn came from, so a reader handed a search hit can
+        // be taken to the message rather than to the top of the session.
+        assert_eq!(first["uuid"], "u1");
+        assert_eq!(second["uuid"], "u2");
     }
 
     /// A transcript is full of markup; unescaped it would close the tag it

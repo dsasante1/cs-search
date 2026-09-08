@@ -123,6 +123,20 @@ pub struct Row {
     /// Neighbouring lines from the same block, populated only by -C/-A/-B.
     pub before: Vec<String>,
     pub after: Vec<String>,
+    /// The whole session id, where `sid` is the eight characters a person
+    /// reads. A terminal can resolve the short form itself — `cs show` takes a
+    /// prefix — but a program consuming `--json` is addressing a session it
+    /// never typed, and a prefix that turns out to be ambiguous is a failure it
+    /// has no way to recover from.
+    pub session_id: String,
+    /// The session's working directory, absolute. `project` is its last
+    /// component, which is a label rather than an address: two checkouts of the
+    /// same repository share it.
+    pub cwd: String,
+    /// The record this row was cut from. Line numbers are meaningless here —
+    /// one record holds many matchable lines — so this is the only stable way
+    /// back to the exact message a hit came from.
+    pub uuid: String,
 }
 
 impl Row {
@@ -161,6 +175,9 @@ impl Row {
         }
     }
 
+    /// `--json` is the stable interface, so keys are only ever added: `session`
+    /// stays the short id every existing consumer already reads, and the three
+    /// addressing fields sit beside it rather than redefining it.
     fn to_json(&self) -> serde_json::Value {
         json!({
             "ts": self.ts,
@@ -168,6 +185,9 @@ impl Row {
             "branch": self.branch,
             "role": self.role,
             "session": self.sid,
+            "sessionId": self.session_id,
+            "cwd": self.cwd,
+            "uuid": self.uuid,
             "text": self.text,
             "before": self.before,
             "after": self.after,
@@ -758,6 +778,28 @@ mod tests {
         assert_eq!(v["session"], "1e59cda9");
         assert_eq!(v["text"], "hello world");
         assert_eq!(v["project"], "proj");
+    }
+
+    #[test]
+    fn json_carries_the_fields_that_address_a_hit() {
+        // The short id is what a person reads and stays what it was; a program
+        // reading `--json` is addressing a session it never typed, and needs
+        // the whole id, the directory it belongs to, and the record it came
+        // from. Adding them must not have moved anything already there.
+        let r = Row {
+            session_id: "1e59cda9-0000-4000-8000-000000000000".into(),
+            cwd: "/home/u/src/proj".into(),
+            uuid: "9d2f5c11-1111-4111-8111-111111111111".into(),
+            ..row()
+        };
+        let mut buf: Vec<u8> = Vec::new();
+        print_json(&mut buf, &[r]);
+        let v: serde_json::Value = serde_json::from_str(&String::from_utf8(buf).unwrap()).unwrap();
+        assert_eq!(v["session"], "1e59cda9", "the short id is unchanged");
+        assert_eq!(v["sessionId"], "1e59cda9-0000-4000-8000-000000000000");
+        assert_eq!(v["cwd"], "/home/u/src/proj");
+        assert_eq!(v["uuid"], "9d2f5c11-1111-4111-8111-111111111111");
+        assert!(v.get("precise").is_none(), "ordering is not part of the interface");
     }
 
     #[test]

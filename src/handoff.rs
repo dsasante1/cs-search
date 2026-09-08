@@ -309,7 +309,7 @@ mod tests {
     }
 
     fn turn(text: &str) -> Turn {
-        Turn { who: Who::Cc, ts: "2026-08-20 01:00".into(), text: text.into() }
+        Turn { who: Who::Cc, ts: "2026-08-20 01:00".into(), text: text.into(), uuid: String::new() }
     }
 
     #[test]

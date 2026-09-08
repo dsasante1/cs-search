@@ -556,6 +556,43 @@ fn ordering_is_deterministic_across_runs() {
     }
 }
 
+/// `--json` is what a program addresses a session through, and a program has
+/// nothing to type a prefix into: the short id, alone, is a lookup that can
+/// come back ambiguous with no way to recover. The whole id, the directory the
+/// session opened in and the record the hit was cut from are what make a row
+/// something a caller can act on.
+#[test]
+fn json_rows_can_address_the_session_and_the_record_they_came_from() {
+    let c = Corpus::new();
+    let r = c.run(&["--json", "-F", "widget alignment is off"]);
+    assert_eq!(r.count(), 1, "one line matches: {}", r.stdout);
+    let v: Value = serde_json::from_str(r.lines()[0]).unwrap();
+
+    assert_eq!(v["session"], &SID_C[..8], "the short id stays what it was");
+    assert_eq!(v["sessionId"], SID_C);
+    assert_eq!(v["cwd"], "/home/u/gamma");
+    assert_eq!(v["uuid"], "u1");
+    // The label is the directory's last component, and has to agree with it.
+    assert_eq!(v["project"], "gamma");
+}
+
+/// A session Keel can resume is one it can find its way back into; the export
+/// carries the same record ids the search rows do, so a hit resolves to a turn.
+#[test]
+fn exported_turns_carry_the_record_they_came_from() {
+    let c = Corpus::new();
+    let r = c.run(&["export", &SID_C[..8], "--format", "json"]);
+    let ids: Vec<String> = r
+        .lines()
+        .iter()
+        .map(|l| {
+            serde_json::from_str::<Value>(l).unwrap()["uuid"].as_str().unwrap_or("").to_owned()
+        })
+        .collect();
+    assert!(ids.contains(&"u1".to_string()), "the user turn's record: {ids:?}");
+    assert!(ids.contains(&"a1".to_string()), "the reply's record: {ids:?}");
+}
+
 #[test]
 fn results_are_ordered_by_timestamp() {
     let c = Corpus::new();
@@ -674,6 +711,15 @@ fn a_session_that_changes_directory_stays_in_one_project() {
 
     let projects = c.run(&["projects"]);
     assert!(!projects.stdout.contains("/sqls"), "{}", projects.stdout);
+
+    // `--json` carries the directory itself, not only its label, and it is the
+    // same directory for both records: a caller deciding whether a session
+    // belongs to the folder it has open would otherwise be told, for half the
+    // session, that it does not.
+    for line in c.run(&["--json", "subdirwalk"]).lines() {
+        let v: Value = serde_json::from_str(line).unwrap();
+        assert_eq!(v["cwd"], "/home/u/epsilon", "{line}");
+    }
 }
 
 /// A flag nobody recognises is a typo, and a typo that exits 0 is a wrong

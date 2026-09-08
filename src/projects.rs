@@ -31,7 +31,24 @@ const SCAN_LINES: usize = 50;
 /// four that `cs projects` — the list that exists to say what `-P` takes —
 /// has never heard of. A session belongs to one project: the one it opened in.
 pub fn label(path: &Path) -> Option<String> {
-    let cwd = describe(path)?.0;
+    name_of(&root(path)?)
+}
+
+/// The working directory a session opened in, whole.
+///
+/// `label` is what a person reads; this is what a program can act on. Two
+/// checkouts of the same repository share a label and are different projects,
+/// so anything addressing a session — opening its folder, deciding whether it
+/// belongs to the window you are in — needs the directory rather than the name.
+pub fn root(path: &Path) -> Option<String> {
+    describe(path).map(|(cwd, _)| cwd)
+}
+
+/// The label a working directory is filed under: its last component.
+///
+/// Split out from `label` so a caller that already holds the directory does not
+/// have to read the transcript a second time to name it.
+pub fn name_of(cwd: &str) -> Option<String> {
     let name = cwd.rsplit('/').next().unwrap_or("");
     (!name.is_empty()).then(|| name.to_owned())
 }
@@ -142,5 +159,15 @@ mod tests {
         assert_eq!(split("/alpha"), ("/", "alpha"));
         // A trailing slash leaves nothing to highlight, which is not a crash.
         assert_eq!(split("/home/u/"), ("/home/u/", ""));
+    }
+
+    #[test]
+    fn a_directory_is_labelled_by_its_last_component() {
+        assert_eq!(name_of("/home/u/src/keel"), Some("keel".into()));
+        assert_eq!(name_of("keel"), Some("keel".into()));
+        // Nothing to name: a trailing slash and an empty cwd both mean the
+        // transcript did not say, and the caller keeps whatever it already had.
+        assert_eq!(name_of("/home/u/src/"), None);
+        assert_eq!(name_of(""), None);
     }
 }
