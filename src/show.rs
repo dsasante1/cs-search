@@ -294,6 +294,12 @@ pub struct Turn {
     pub who: Who,
     pub ts: String,
     pub text: String,
+    /// The record this turn was rendered from. Not unique: one record holding a
+    /// reply and the tool call after it becomes several turns, and they share
+    /// it. That is the right granularity for what it is for — a search hit
+    /// names a record, and pointing at the first turn carrying it is what lets
+    /// a reader be taken to the message rather than to the session.
+    pub uuid: String,
 }
 
 /// Read a transcript as turns, honouring the same role filter `show` takes.
@@ -330,7 +336,7 @@ pub fn turns_with(fh: File, role: &str, blocks: BlockOpts) -> Vec<Turn> {
             if text.is_empty() {
                 continue;
             }
-            out.push(Turn { who, ts: ts.clone(), text });
+            out.push(Turn { who, ts: ts.clone(), text, uuid: r.uuid().to_owned() });
         }
     }
     out

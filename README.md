@@ -513,6 +513,21 @@ cs --json 'prefilter' | jq -r .session | sort -u
 cs --json 'migration' | jq -r .project | sort | uniq -c | sort -rn
 ```
 
+Each object carries what it takes to *address* a hit as well as read it.
+`session` is the eight characters a person reads and every subcommand accepts as
+a prefix; `sessionId` is the whole thing, which is what a program should use —
+it never typed the prefix and has no way to recover if one turns out to be
+ambiguous. `cwd` is the directory the session opened in, where `project` is only
+its last component: two checkouts of one repository share a label and are
+different projects. `uuid` is the record the line was cut from, and
+`export --format json` puts the same id on every turn, so a hit resolves to a
+message rather than to the top of a session:
+
+```sh
+cs --json 'rate limit' | jq -r '[.sessionId, .uuid] | @tsv'
+cs export "$sid" --format json | jq -r 'select(.uuid == $u) | .text' --arg u "$uuid"
+```
+
 **A session someone else has to read.** `show` renders for your terminal;
 `export` renders for anywhere else:
 
@@ -538,6 +553,12 @@ copy of the history for testing:
 ```sh
 CLAUDE_HOME=/tmp/snapshot cs 'database'
 ```
+
+Failing that it reads `$CLAUDE_CONFIG_DIR`, which is Claude Code's own switch
+and the one that actually relocates the store on a machine running more than one
+account. A caller already pointed at an account by that variable would otherwise
+be answered out of a different login's history — a wrong answer that looks like
+a right one. `CLAUDE_HOME` still wins where both are set.
 
 `cs -i` shells out to `fzf`; nothing else is required at runtime.
 
@@ -619,7 +640,7 @@ avoids the work.
 cargo test
 ```
 
-359 tests, needing no network and no fixtures beyond what the suite creates and
+371 tests, needing no network and no fixtures beyond what the suite creates and
 cleans up itself:
 
 - **Unit tests** sit inline in each module and cover the pure helpers —
