@@ -640,7 +640,7 @@ avoids the work.
 cargo test
 ```
 
-359 tests, needing no network and no fixtures beyond what the suite creates and
+371 tests, needing no network and no fixtures beyond what the suite creates and
 cleans up itself:
 
 - **Unit tests** sit inline in each module and cover the pure helpers —
